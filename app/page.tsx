@@ -104,6 +104,53 @@ export default function Home() {
             </p>
           )}
         </motion.div>
+
+        {/* Game Info Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mt-20">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+            className="bg-gray-800/50 backdrop-blur rounded-lg p-6 text-center border border-gray-700 hover:border-purple-500 transition-colors"
+          >
+            <div className="text-3xl mb-2">⚡</div>
+            <div className="text-2xl font-bold text-purple-400">10-15</div>
+            <div className="text-gray-400">Minutes per Game</div>
+          </motion.div>
+
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2 }}
+            className="bg-gray-800/50 backdrop-blur rounded-lg p-6 text-center border border-gray-700 hover:border-blue-500 transition-colors"
+          >
+            <div className="text-3xl mb-2">🎴</div>
+            <div className="text-2xl font-bold text-blue-400">30</div>
+            <div className="text-gray-400">Unique Units</div>
+          </motion.div>
+
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3 }}
+            className="bg-gray-800/50 backdrop-blur rounded-lg p-6 text-center border border-gray-700 hover:border-green-500 transition-colors"
+          >
+            <div className="text-3xl mb-2">🎯</div>
+            <div className="text-2xl font-bold text-green-400">8</div>
+            <div className="text-gray-400">Board Positions</div>
+          </motion.div>
+
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.4 }}
+            className="bg-gray-800/50 backdrop-blur rounded-lg p-6 text-center border border-gray-700 hover:border-yellow-500 transition-colors"
+          >
+            <div className="text-3xl mb-2">🏆</div>
+            <div className="text-2xl font-bold text-yellow-400">Top 3</div>
+            <div className="text-gray-400">Win Rewards</div>
+          </motion.div>
+        </div>
       </div>
     </main>
   );
