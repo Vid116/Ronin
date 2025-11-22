@@ -470,6 +470,13 @@ export class GameRoom {
     this.stateSync.syncShopUpdate(socketId, shop);
     this.stateSync.syncSuccess(socketId, `Purchased ${card.name}`);
 
+    // Sync updated bench and player stats
+    this.io.to(socketId).emit('state_sync', {
+      bench: this.playerBenches.get(walletAddress),
+      player: this.players.get(walletAddress),
+      shop: shop,
+    });
+
     return true;
   }
 
@@ -527,6 +534,19 @@ export class GameRoom {
     }
 
     this.stateSync.syncSuccess(socketId, `Sold ${unit.name} for ${sellValue} gold`);
+
+    // Sync updated board, bench, and player stats
+    this.io.to(socketId).emit('state_sync', {
+      board: this.playerBoards.get(walletAddress),
+      bench: this.playerBenches.get(walletAddress),
+      player: this.players.get(walletAddress),
+    });
+
+    // Broadcast board update to opponents if unit was on board
+    if (!isOnBench) {
+      const allSocketIds = this.getActivePlayerSocketIds();
+      this.stateSync.syncBoardUpdate(allSocketIds, walletAddress, board);
+    }
 
     return true;
   }
@@ -593,6 +613,19 @@ export class GameRoom {
     bench.splice(unitIndex, 1);
 
     this.stateSync.syncSuccess(socketId, `Placed ${unit.name}`);
+
+    // Sync updated board and bench to player
+    const updatedBoard = this.playerBoards.get(walletAddress)!;
+    const updatedBench = this.playerBenches.get(walletAddress)!;
+
+    this.io.to(socketId).emit('state_sync', {
+      board: updatedBoard,
+      bench: updatedBench,
+    });
+
+    // Broadcast board update to opponents
+    const allSocketIds = this.getActivePlayerSocketIds();
+    this.stateSync.syncBoardUpdate(allSocketIds, walletAddress, updatedBoard);
 
     return true;
   }
