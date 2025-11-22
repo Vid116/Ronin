@@ -1,6 +1,7 @@
 import { ethers } from 'ethers';
 import contractAbis from '../../contract-abis.json';
 import deployment from '../../deployment.json';
+import { logger } from '../utils/logger';
 
 /**
  * Service for interacting with RoninRumbleMain smart contract
@@ -34,10 +35,11 @@ export class ContractService {
     // Initialize contract instance
     this.contract = new ethers.Contract(this.contractAddress, abi, this.wallet);
 
-    console.log(`📝 Contract Service initialized`);
-    console.log(`   Contract: ${this.contractAddress}`);
-    console.log(`   Game Server: ${this.wallet.address}`);
-    console.log(`   Network: ${rpcUrl}`);
+    logger.info('Contract Service initialized', {
+      contract: this.contractAddress,
+      gameServer: this.wallet.address,
+      network: rpcUrl
+    });
   }
 
   /**
@@ -47,18 +49,24 @@ export class ContractService {
    */
   async createMatch(entryFee: number): Promise<number> {
     try {
-      console.log(`🔗 Creating match on-chain with entry fee: ${entryFee} RON`);
+      logger.action('Creating match on blockchain', { entryFee });
 
       // Convert entry fee to wei
       const entryFeeWei = ethers.parseEther(entryFee.toString());
 
       // Call createMatch on contract
       const tx = await this.contract.createMatch(entryFeeWei);
-      console.log(`   Transaction sent: ${tx.hash}`);
+      logger.action('Blockchain transaction sent', {
+        txHash: tx.hash,
+        entryFee
+      });
 
       // Wait for transaction confirmation
       const receipt = await tx.wait();
-      console.log(`   ✅ Transaction confirmed in block ${receipt.blockNumber}`);
+      logger.state('Transaction confirmed', {
+        blockNumber: receipt.blockNumber,
+        txHash: tx.hash
+      });
 
       // Parse MatchCreated event to get matchId
       const matchCreatedEvent = receipt.logs
@@ -76,11 +84,18 @@ export class ContractService {
       }
 
       const matchId = Number(matchCreatedEvent.args.matchId);
-      console.log(`   🎮 Match created with ID: ${matchId}`);
+      logger.match('Blockchain match created', {
+        matchId,
+        entryFee,
+        txHash: tx.hash
+      });
 
       return matchId;
     } catch (error: any) {
-      console.error('❌ Error creating match:', error.message);
+      logger.error('Failed to create blockchain match', {
+        error: error.message,
+        entryFee
+      });
       throw new Error(`Failed to create match: ${error.message}`);
     }
   }
@@ -100,7 +115,12 @@ export class ContractService {
     expectedEntryFee: number
   ): Promise<boolean> {
     try {
-      console.log(`🔍 Verifying joinMatch transaction: ${txHash}`);
+      logger.action('Verifying joinMatch transaction', {
+        txHash,
+        expectedMatchId,
+        expectedPlayer,
+        expectedEntryFee
+      });
 
       // Get transaction receipt
       const receipt = await this.provider.getTransactionReceipt(txHash);
@@ -150,10 +170,17 @@ export class ContractService {
         throw new Error(`Entry fee mismatch: expected ${expectedEntryFee}, got ${entryFeeRon}`);
       }
 
-      console.log(`   ✅ Transaction verified successfully`);
+      logger.action('Transaction verified successfully', {
+        txHash,
+        matchId: Number(matchId),
+        player
+      });
       return true;
     } catch (error: any) {
-      console.error(`   ❌ Verification failed: ${error.message}`);
+      logger.error('Transaction verification failed', {
+        txHash,
+        error: error.message
+      });
       throw error;
     }
   }
@@ -170,9 +197,11 @@ export class ContractService {
     placements: number[]
   ): Promise<void> {
     try {
-      console.log(`🏆 Submitting match results for match ${matchId}`);
-      console.log(`   Players: ${players.length}`);
-      console.log(`   Placements: ${placements.join(', ')}`);
+      logger.match('Submitting match results to blockchain', {
+        matchId,
+        playerCount: players.length,
+        placements: placements.join(', ')
+      });
 
       // Validate input
       if (players.length !== 6 || placements.length !== 6) {
@@ -195,25 +224,33 @@ export class ContractService {
         playersArray,
         placementsArray
       );
-      console.log(`   Transaction sent: ${tx.hash}`);
+      logger.action('Results submission transaction sent', {
+        matchId,
+        txHash: tx.hash
+      });
 
       // Wait for confirmation
       const receipt = await tx.wait();
-      console.log(`   ✅ Results submitted in block ${receipt.blockNumber}`);
+      logger.match('Match results submitted to blockchain', {
+        matchId,
+        blockNumber: receipt.blockNumber,
+        txHash: tx.hash
+      });
 
       // Log prize distribution
       for (let i = 0; i < players.length; i++) {
         const placement = placements[i];
-        let prize = '';
-        if (placement === 1) prize = '🥇 1st place';
-        else if (placement === 2) prize = '🥈 2nd place';
-        else if (placement === 3) prize = '🥉 3rd place';
-        else prize = `${placement}th place`;
-
-        console.log(`   ${prize}: ${players[i].substring(0, 10)}...`);
+        logger.state(`Player placement ${placement}`, {
+          matchId,
+          wallet: players[i],
+          placement
+        });
       }
     } catch (error: any) {
-      console.error('❌ Error submitting results:', error.message);
+      logger.error('Failed to submit match results', {
+        matchId,
+        error: error.message
+      });
       throw new Error(`Failed to submit match results: ${error.message}`);
     }
   }
@@ -242,7 +279,10 @@ export class ContractService {
         timestamp: Number(match.timestamp),
       };
     } catch (error: any) {
-      console.error(`Error fetching match ${matchId}:`, error.message);
+      logger.error('Error fetching match from blockchain', {
+        matchId,
+        error: error.message
+      });
       throw error;
     }
   }
@@ -256,7 +296,11 @@ export class ContractService {
     try {
       return await this.contract.isPlayerInMatch(matchId, playerAddress);
     } catch (error: any) {
-      console.error(`Error checking player in match:`, error.message);
+      logger.error('Error checking player in match', {
+        matchId,
+        wallet: playerAddress,
+        error: error.message
+      });
       return false;
     }
   }
@@ -270,7 +314,10 @@ export class ContractService {
       const balance = await this.contract.getPlayerBalance(playerAddress);
       return ethers.formatEther(balance);
     } catch (error: any) {
-      console.error(`Error fetching player balance:`, error.message);
+      logger.error('Error fetching player balance', {
+        wallet: playerAddress,
+        error: error.message
+      });
       return '0';
     }
   }

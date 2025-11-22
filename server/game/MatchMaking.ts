@@ -502,7 +502,13 @@ export class MatchMaking {
     });
 
     // Start the match
-    console.log(`Starting bot match ${matchId}`);
+    logger.match('Starting bot match', {
+      matchId,
+      wallet: walletAddress,
+      socketId,
+      entryFee,
+      botCount: 5
+    });
     gameRoom.start();
   }
 
