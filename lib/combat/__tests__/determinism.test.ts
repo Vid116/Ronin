@@ -1,7 +1,6 @@
 // Determinism Tests for Combat Engine
 // Ensures same seed produces same results (critical for ROFL verification)
 
-import { describe, it, expect } from 'vitest';
 import { simulateCombat } from '../engine';
 import { seededRandom, generateCombatSeed } from '../rng';
 import { WARRIOR, TANK, BERSERKER, HEALER, createTestBoard } from '../example-units';
