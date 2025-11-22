@@ -9,6 +9,7 @@ import { BotPlayer, createBotPlayers } from './BotPlayer';
 
 interface QueuedPlayer {
   socketId: string;
+  walletAddress?: string; // Optional for backward compatibility (bots won't have real wallets)
   entryFee: number;
   isBot?: boolean;
   botName?: string;
@@ -22,14 +23,18 @@ export class GameRoom {
   private io: SocketIOServer;
 
   // Player management
-  private players: Map<string, Player>;
-  private playerBoards: Map<string, Board>;
-  private playerBenches: Map<string, Unit[]>;
-  private playerShops: Map<string, Shop>;
-  private playerReadyStatus: Map<string, boolean>;
-  private disconnectedPlayers: Set<string>;
-  private botPlayers: Map<string, BotPlayer>;
+  private players: Map<string, Player>; // wallet address → Player
+  private playerBoards: Map<string, Board>; // wallet address → Board
+  private playerBenches: Map<string, Unit[]>; // wallet address → Bench
+  private playerShops: Map<string, Shop>; // wallet address → Shop
+  private playerReadyStatus: Map<string, boolean>; // wallet address → ready status
+  private disconnectedPlayers: Set<string>; // wallet addresses
+  private botPlayers: Map<string, BotPlayer>; // wallet address → BotPlayer
   private isBotMatch: boolean;
+
+  // Socket mapping (wallet ↔ socket ID)
+  private walletToSocket: Map<string, string>; // wallet address → current socket ID
+  private socketToWallet: Map<string, string>; // socket ID → wallet address
 
   // Game systems
   private shopGenerator: ShopGenerator;
@@ -62,13 +67,19 @@ export class GameRoom {
     this.disconnectedPlayers = new Set();
     this.eliminatedPlayers = new Set();
     this.botPlayers = new Map();
+    this.walletToSocket = new Map();
+    this.socketToWallet = new Map();
     this.isBotMatch = queuedPlayers.some(qp => qp.isBot);
 
     // Create player objects
     queuedPlayers.forEach((qp, index) => {
+      // For bots, use socketId as wallet address (they don't have real wallets)
+      // For real players, use provided wallet address or fall back to socketId for backward compatibility
+      const walletAddress = qp.isBot ? qp.socketId : (qp.walletAddress || qp.socketId);
+
       const player: Player = {
-        id: qp.socketId,
-        address: `0x${index.toString().padStart(40, '0')}`,
+        id: walletAddress, // Use wallet address as player ID
+        address: qp.isBot ? `0x${index.toString().padStart(40, '0')}` : walletAddress,
         health: 20,
         gold: 3,
         level: 1,
@@ -77,23 +88,28 @@ export class GameRoom {
         loseStreak: 0,
       };
 
-      this.players.set(qp.socketId, player);
+      // Store player by wallet address
+      this.players.set(walletAddress, player);
+
+      // Create wallet ↔ socket mapping
+      this.walletToSocket.set(walletAddress, qp.socketId);
+      this.socketToWallet.set(qp.socketId, walletAddress);
 
       // Initialize empty board
-      this.playerBoards.set(qp.socketId, {
+      this.playerBoards.set(walletAddress, {
         top: [null, null, null, null],
         bottom: [null, null, null, null],
       });
 
       // Initialize empty bench
-      this.playerBenches.set(qp.socketId, []);
+      this.playerBenches.set(walletAddress, []);
 
       // Initialize ready status
-      this.playerReadyStatus.set(qp.socketId, false);
+      this.playerReadyStatus.set(walletAddress, false);
 
       // If this is a bot, create the bot AI
       if (qp.isBot) {
-        this.botPlayers.set(qp.socketId, new BotPlayer(qp.socketId, 'easy'));
+        this.botPlayers.set(walletAddress, new BotPlayer(walletAddress, 'easy'));
       }
     });
 
@@ -116,10 +132,15 @@ export class GameRoom {
     console.log(`Starting match ${this.matchId}`);
 
     // Generate initial shops for all players
-    this.players.forEach((player, playerId) => {
-      const shop = this.generateShopForPlayer(playerId);
-      this.playerShops.set(playerId, shop);
-      this.stateSync.syncShopUpdate(playerId, shop);
+    this.players.forEach((player, walletAddress) => {
+      const shop = this.generateShopForPlayer(walletAddress);
+      this.playerShops.set(walletAddress, shop);
+
+      // Get socket ID to send shop update
+      const socketId = this.getSocketFromWallet(walletAddress);
+      if (socketId) {
+        this.stateSync.syncShopUpdate(socketId, shop);
+      }
     });
 
     // Start round 1
@@ -150,27 +171,31 @@ export class GameRoom {
    */
   private handlePlanningPhase(round: number): void {
     // Give players gold at start of round
-    this.players.forEach((player, playerId) => {
-      if (this.eliminatedPlayers.has(playerId)) return;
+    this.players.forEach((player, walletAddress) => {
+      if (this.eliminatedPlayers.has(walletAddress)) return;
 
       const income = this.economyManager.calculateRoundIncome(player);
       player.gold += income;
 
       // Regenerate shop
-      const shop = this.generateShopForPlayer(playerId);
-      this.playerShops.set(playerId, shop);
+      const shop = this.generateShopForPlayer(walletAddress);
+      this.playerShops.set(walletAddress, shop);
 
-      // Sync to player
-      this.stateSync.syncShopUpdate(playerId, shop);
+      // Sync to player via socket
+      const socketId = this.getSocketFromWallet(walletAddress);
+      if (socketId) {
+        this.stateSync.syncShopUpdate(socketId, shop);
+      }
     });
 
-    // Broadcast round start with timer
+    // Broadcast round start with timer - need socket IDs for broadcast
     const timeRemaining = this.roundManager.getTimeRemaining();
-    this.stateSync.syncRoundStart(this.getActivePlayerIds(), round, 'PLANNING', timeRemaining);
+    const activeSocketIds = this.getActivePlayerSocketIds();
+    this.stateSync.syncRoundStart(activeSocketIds, round, 'PLANNING', timeRemaining);
 
     // Reset ready status
-    this.playerReadyStatus.forEach((_, playerId) => {
-      this.playerReadyStatus.set(playerId, false);
+    this.playerReadyStatus.forEach((_, walletAddress) => {
+      this.playerReadyStatus.set(walletAddress, false);
     });
 
     // Execute bot turns
@@ -183,11 +208,11 @@ export class GameRoom {
    * Execute bot AI turns during planning phase
    */
   private async executeBotTurns(round: number): Promise<void> {
-    for (const [botId, bot] of this.botPlayers.entries()) {
-      if (this.eliminatedPlayers.has(botId)) continue;
+    for (const [botWallet, bot] of this.botPlayers.entries()) {
+      if (this.eliminatedPlayers.has(botWallet)) continue;
 
-      const player = this.players.get(botId);
-      const shop = this.playerShops.get(botId);
+      const player = this.players.get(botWallet);
+      const shop = this.playerShops.get(botWallet);
 
       if (!player || !shop) continue;
 
@@ -200,44 +225,47 @@ export class GameRoom {
       // Create a player state for the bot
       const playerState = {
         ...player,
-        bench: this.playerBenches.get(botId) || [],
-        board: this.getAllUnitsFromBoard(this.playerBoards.get(botId)!)
+        bench: this.playerBenches.get(botWallet) || [],
+        board: this.getAllUnitsFromBoard(this.playerBoards.get(botWallet)!)
       };
 
       // Execute bot turn with action callbacks
       await bot.executeTurn(playerState, shopCards, round, (action, data) => {
-        this.handleBotAction(botId, action, data);
+        this.handleBotAction(botWallet, action, data);
       });
 
       // Mark bot as ready
-      this.playerReadyStatus.set(botId, true);
+      this.playerReadyStatus.set(botWallet, true);
     }
   }
 
   /**
-   * Handle bot action
+   * Handle bot action (botWallet is the wallet address used as bot identifier)
    */
-  private handleBotAction(botId: string, action: string, data: any): void {
+  private handleBotAction(botWallet: string, action: string, data: any): void {
+    // Bots use their wallet address as identifier, need to get their "socket ID"
+    const botSocketId = this.getSocketFromWallet(botWallet) || botWallet;
+
     switch (action) {
       case 'reroll':
-        this.handleRerollShop(botId);
+        this.handleRerollShop(botSocketId);
         break;
       case 'levelUp':
-        this.handleBuyXP(botId);
+        this.handleBuyXP(botSocketId);
         break;
       case 'buyCard':
-        this.handleBuyCard(botId, data.shopIndex);
+        this.handleBuyCard(botSocketId, data.shopIndex);
         break;
       case 'sellCard':
-        const bench = this.playerBenches.get(botId);
+        const bench = this.playerBenches.get(botWallet);
         if (bench && bench[data.benchIndex]) {
-          this.handleSellCard(botId, bench[data.benchIndex].id);
+          this.handleSellCard(botSocketId, bench[data.benchIndex].id);
         }
         break;
       case 'moveCard':
-        const moveBench = this.playerBenches.get(botId);
+        const moveBench = this.playerBenches.get(botWallet);
         if (moveBench && moveBench[data.benchIndex]) {
-          this.handlePlaceCard(botId, moveBench[data.benchIndex].id, data.boardIndex);
+          this.handlePlaceCard(botSocketId, moveBench[data.benchIndex].id, data.boardIndex);
         }
         break;
     }
@@ -249,29 +277,36 @@ export class GameRoom {
   private handleCombatPhase(round: number): void {
     console.log(`⚔️ Starting combat phase for round ${round}`);
 
-    // Pair opponents
-    const activePlayerIds = this.getActivePlayerIds();
-    const pairings = RoundManager.pairOpponents(activePlayerIds, round);
+    // Pair opponents (uses wallet addresses)
+    const activeWallets = this.getActivePlayerIds();
+    const pairings = RoundManager.pairOpponents(activeWallets, round);
 
-    console.log(`📡 Running combat for ${activePlayerIds.length} players`);
+    console.log(`📡 Running combat for ${activeWallets.length} players`);
 
     // Run combat for each pairing (COMBAT_START event sent in runCombat)
-    pairings.forEach((opponentId, playerId) => {
-      this.runCombat(playerId, opponentId);
+    pairings.forEach((opponentWallet, playerWallet) => {
+      this.runCombat(playerWallet, opponentWallet);
     });
   }
 
   /**
-   * Run combat between two players
+   * Run combat between two players (by wallet address)
    */
-  private runCombat(playerId: string, opponentId: string): void {
-    const player = this.players.get(playerId);
-    const opponent = this.players.get(opponentId);
-    const playerBoard = this.playerBoards.get(playerId);
-    const opponentBoard = this.playerBoards.get(opponentId);
+  private runCombat(playerWallet: string, opponentWallet: string): void {
+    const player = this.players.get(playerWallet);
+    const opponent = this.players.get(opponentWallet);
+    const playerBoard = this.playerBoards.get(playerWallet);
+    const opponentBoard = this.playerBoards.get(opponentWallet);
 
     if (!player || !opponent || !playerBoard || !opponentBoard) {
-      console.error(`Missing player data for combat: ${playerId} vs ${opponentId}`);
+      console.error(`Missing player data for combat: ${playerWallet} vs ${opponentWallet}`);
+      return;
+    }
+
+    // Get socket ID for sending events
+    const playerSocketId = this.getSocketFromWallet(playerWallet);
+    if (!playerSocketId) {
+      console.error(`No socket found for player: ${playerWallet}`);
       return;
     }
 
@@ -282,7 +317,7 @@ export class GameRoom {
       this.getAllUnitsFromBoard(opponentBoard)
     );
     const timeRemaining = this.roundManager.getTimeRemaining();
-    this.stateSync.syncCombatStart(playerId, opponentState, timeRemaining);
+    this.stateSync.syncCombatStart(playerSocketId, opponentState, timeRemaining);
 
     // Simulate combat
     const result = this.combatSimulator.simulateCombat(playerBoard, opponentBoard);
@@ -290,7 +325,7 @@ export class GameRoom {
     // Send combat events to player
     result.combatLog.forEach(event => {
       this.stateSync.syncCombatEvent(
-        playerId,
+        playerSocketId,
         event.type,
         event.source,
         event.target,
@@ -311,11 +346,11 @@ export class GameRoom {
       player.loseStreak = streaks.loseStreak;
 
       // Notify player of damage with updated player state
-      this.stateSync.syncRoundEnd(playerId, result.damageDealt, player);
+      this.stateSync.syncRoundEnd(playerSocketId, result.damageDealt, player);
 
       // Check for elimination
       if (player.health <= 0) {
-        this.eliminatePlayer(playerId);
+        this.eliminatePlayer(playerWallet);
       }
     } else if (result.winner === 'player') {
       // Player won
@@ -324,11 +359,11 @@ export class GameRoom {
       player.loseStreak = streaks.loseStreak;
 
       // No damage - send updated player state
-      this.stateSync.syncRoundEnd(playerId, 0, player);
+      this.stateSync.syncRoundEnd(playerSocketId, 0, player);
     } else {
       // Draw - minimal damage
       player.health -= 1;
-      this.stateSync.syncRoundEnd(playerId, 1, player);
+      this.stateSync.syncRoundEnd(playerSocketId, 1, player);
     }
   }
 
@@ -339,12 +374,13 @@ export class GameRoom {
     console.log(`Starting transition phase for round ${round}`);
 
     // Broadcast phase change to all players with timeRemaining
-    const activePlayers = this.getActivePlayerIds();
+    const activeSocketIds = this.getActivePlayerSocketIds();
+    const activeWallets = this.getActivePlayerIds();
     const timeRemaining = this.roundManager.getTimeRemaining();
-    this.stateSync.syncPhaseChange(activePlayers, 'TRANSITION', round, timeRemaining);
+    this.stateSync.syncPhaseChange(activeSocketIds, 'TRANSITION', round, timeRemaining);
 
     // Check for match end
-    if (activePlayers.length <= 1) {
+    if (activeWallets.length <= 1) {
       this.endMatch();
     } else {
       // Start next round after transition
@@ -365,9 +401,15 @@ export class GameRoom {
    * Handle buy card
    */
   handleBuyCard(socketId: string, cardIndex: number): boolean {
-    const player = this.players.get(socketId);
-    const shop = this.playerShops.get(socketId);
-    const bench = this.playerBenches.get(socketId);
+    const walletAddress = this.getWalletFromSocket(socketId);
+    if (!walletAddress) {
+      this.stateSync.syncError(socketId, 'Player not found in match');
+      return false;
+    }
+
+    const player = this.players.get(walletAddress);
+    const shop = this.playerShops.get(walletAddress);
+    const bench = this.playerBenches.get(walletAddress);
 
     if (!player || !shop || !bench) {
       this.stateSync.syncError(socketId, 'Player data not found');
@@ -422,9 +464,15 @@ export class GameRoom {
    * Handle sell card
    */
   handleSellCard(socketId: string, unitId: string): boolean {
-    const player = this.players.get(socketId);
-    const bench = this.playerBenches.get(socketId);
-    const board = this.playerBoards.get(socketId);
+    const walletAddress = this.getWalletFromSocket(socketId);
+    if (!walletAddress) {
+      this.stateSync.syncError(socketId, 'Player not found in match');
+      return false;
+    }
+
+    const player = this.players.get(walletAddress);
+    const bench = this.playerBenches.get(walletAddress);
+    const board = this.playerBoards.get(walletAddress);
 
     if (!player || !bench || !board) {
       this.stateSync.syncError(socketId, 'Player data not found');
@@ -474,9 +522,15 @@ export class GameRoom {
    * Handle place card
    */
   handlePlaceCard(socketId: string, unitId: string, position: number): boolean {
-    const player = this.players.get(socketId);
-    const bench = this.playerBenches.get(socketId);
-    const board = this.playerBoards.get(socketId);
+    const walletAddress = this.getWalletFromSocket(socketId);
+    if (!walletAddress) {
+      this.stateSync.syncError(socketId, 'Player not found in match');
+      return false;
+    }
+
+    const player = this.players.get(walletAddress);
+    const bench = this.playerBenches.get(walletAddress);
+    const board = this.playerBoards.get(walletAddress);
 
     if (!player || !bench || !board) {
       this.stateSync.syncError(socketId, 'Player data not found');
@@ -534,8 +588,14 @@ export class GameRoom {
    * Handle reroll shop
    */
   handleRerollShop(socketId: string): boolean {
-    const player = this.players.get(socketId);
-    const shop = this.playerShops.get(socketId);
+    const walletAddress = this.getWalletFromSocket(socketId);
+    if (!walletAddress) {
+      this.stateSync.syncError(socketId, 'Player not found in match');
+      return false;
+    }
+
+    const player = this.players.get(walletAddress);
+    const shop = this.playerShops.get(walletAddress);
 
     if (!player || !shop) {
       this.stateSync.syncError(socketId, 'Player data not found');
@@ -561,8 +621,8 @@ export class GameRoom {
     }
 
     // Generate new shop
-    const newShop = this.generateShopForPlayer(socketId);
-    this.playerShops.set(socketId, newShop);
+    const newShop = this.generateShopForPlayer(walletAddress);
+    this.playerShops.set(walletAddress, newShop);
     this.stateSync.syncShopUpdate(socketId, newShop);
 
     return true;
@@ -572,7 +632,13 @@ export class GameRoom {
    * Handle buy XP
    */
   handleBuyXP(socketId: string): boolean {
-    const player = this.players.get(socketId);
+    const walletAddress = this.getWalletFromSocket(socketId);
+    if (!walletAddress) {
+      this.stateSync.syncError(socketId, 'Player not found in match');
+      return false;
+    }
+
+    const player = this.players.get(walletAddress);
 
     if (!player) {
       this.stateSync.syncError(socketId, 'Player data not found');
@@ -609,7 +675,13 @@ export class GameRoom {
    * Handle player ready
    */
   handleReady(socketId: string): void {
-    this.playerReadyStatus.set(socketId, true);
+    const walletAddress = this.getWalletFromSocket(socketId);
+    if (!walletAddress) {
+      console.warn(`Cannot mark unknown player as ready: ${socketId}`);
+      return;
+    }
+
+    this.playerReadyStatus.set(walletAddress, true);
 
     // Check if all players are ready
     const allReady = Array.from(this.playerReadyStatus.values()).every(ready => ready);
@@ -624,38 +696,44 @@ export class GameRoom {
    * Handle player disconnect
    */
   handlePlayerDisconnect(socketId: string): void {
-    this.disconnectedPlayers.add(socketId);
-    console.log(`Player ${socketId} disconnected from match ${this.matchId}`);
+    const walletAddress = this.getWalletFromSocket(socketId);
+    if (!walletAddress) {
+      console.warn(`Cannot handle disconnect for unknown socket: ${socketId}`);
+      return;
+    }
 
-    // Could add reconnection logic here
-    // For now, eliminate disconnected players after a timeout
+    this.disconnectedPlayers.add(walletAddress);
+    console.log(`Player ${walletAddress} (socket: ${socketId}) disconnected from match ${this.matchId}`);
+
+    // Give players 60 seconds to reconnect before elimination
     setTimeout(() => {
-      if (this.disconnectedPlayers.has(socketId)) {
-        this.eliminatePlayer(socketId);
+      if (this.disconnectedPlayers.has(walletAddress)) {
+        this.eliminatePlayer(walletAddress);
       }
     }, 60000); // 60 second grace period
   }
 
   /**
-   * Eliminate a player
+   * Eliminate a player (by wallet address)
    */
-  private eliminatePlayer(playerId: string): void {
-    const player = this.players.get(playerId);
-    if (!player || this.eliminatedPlayers.has(playerId)) {
+  private eliminatePlayer(walletAddress: string): void {
+    const player = this.players.get(walletAddress);
+    if (!player || this.eliminatedPlayers.has(walletAddress)) {
       return;
     }
 
-    console.log(`Player ${playerId} eliminated from match ${this.matchId}`);
-    this.eliminatedPlayers.add(playerId);
+    console.log(`Player ${walletAddress} eliminated from match ${this.matchId}`);
+    this.eliminatedPlayers.add(walletAddress);
 
-    const activePlayers = this.getActivePlayerIds();
-    player.placement = activePlayers.length + 1;
+    const activeWallets = this.getActivePlayerIds();
+    player.placement = activeWallets.length + 1;
 
-    // Notify all players
-    this.stateSync.syncPlayerEliminated(Array.from(this.players.keys()), playerId);
+    // Notify all players via their socket IDs
+    const allSocketIds = Array.from(this.walletToSocket.values());
+    this.stateSync.syncPlayerEliminated(allSocketIds, player.id);
 
     // Check for match end
-    if (activePlayers.length <= 1) {
+    if (activeWallets.length <= 1) {
       this.endMatch();
     }
   }
@@ -670,9 +748,9 @@ export class GameRoom {
     this.isMatchComplete = true;
 
     // Set placement for remaining players
-    const activePlayers = this.getActivePlayerIds();
-    activePlayers.forEach(playerId => {
-      const player = this.players.get(playerId);
+    const activeWallets = this.getActivePlayerIds();
+    activeWallets.forEach(walletAddress => {
+      const player = this.players.get(walletAddress);
       if (player && !player.placement) {
         player.placement = 1; // Winner
       }
@@ -686,18 +764,19 @@ export class GameRoom {
         placement: p.placement || 999,
       }));
 
-    // Notify all players
-    this.stateSync.syncMatchEnd(Array.from(this.players.keys()), placements);
+    // Notify all players via socket IDs
+    const allSocketIds = Array.from(this.walletToSocket.values());
+    this.stateSync.syncMatchEnd(allSocketIds, placements);
 
     // Cleanup
     this.cleanup();
   }
 
   /**
-   * Generate shop for a player
+   * Generate shop for a player (by wallet address)
    */
-  private generateShopForPlayer(playerId: string): Shop {
-    const player = this.players.get(playerId);
+  private generateShopForPlayer(walletAddress: string): Shop {
+    const player = this.players.get(walletAddress);
     if (!player) {
       return { cards: [], rerollCost: REROLL_COST, freeRerolls: 0 };
     }
@@ -712,12 +791,29 @@ export class GameRoom {
   }
 
   /**
-   * Get all active (non-eliminated) player IDs
+   * Get all active (non-eliminated) player wallet addresses
    */
   private getActivePlayerIds(): string[] {
     return Array.from(this.players.keys()).filter(
-      id => !this.eliminatedPlayers.has(id)
+      walletAddress => !this.eliminatedPlayers.has(walletAddress)
     );
+  }
+
+  /**
+   * Get socket IDs for all active players
+   */
+  private getActivePlayerSocketIds(): string[] {
+    const activeWallets = this.getActivePlayerIds();
+    const socketIds: string[] = [];
+
+    for (const wallet of activeWallets) {
+      const socketId = this.getSocketFromWallet(wallet);
+      if (socketId) {
+        socketIds.push(socketId);
+      }
+    }
+
+    return socketIds;
   }
 
   /**
@@ -781,10 +877,49 @@ export class GameRoom {
   }
 
   /**
-   * Check if player is in this match
+   * Get wallet address from socket ID
+   */
+  private getWalletFromSocket(socketId: string): string | null {
+    return this.socketToWallet.get(socketId) || null;
+  }
+
+  /**
+   * Get socket ID from wallet address
+   */
+  private getSocketFromWallet(walletAddress: string): string | null {
+    return this.walletToSocket.get(walletAddress) || null;
+  }
+
+  /**
+   * Check if player is in this match (by socket ID)
    */
   hasPlayer(socketId: string): boolean {
-    return this.players.has(socketId);
+    const walletAddress = this.socketToWallet.get(socketId);
+    return walletAddress ? this.players.has(walletAddress) : false;
+  }
+
+  /**
+   * Check if player is in this match (by wallet address)
+   */
+  hasPlayerByWallet(walletAddress: string): boolean {
+    return this.players.has(walletAddress);
+  }
+
+  /**
+   * Update socket mapping for a wallet address (for reconnection)
+   */
+  updateSocketMapping(walletAddress: string, newSocketId: string): void {
+    // Remove old socket mapping if exists
+    const oldSocketId = this.walletToSocket.get(walletAddress);
+    if (oldSocketId) {
+      this.socketToWallet.delete(oldSocketId);
+      console.log(`Removed old socket mapping: ${oldSocketId} → ${walletAddress}`);
+    }
+
+    // Add new mapping
+    this.walletToSocket.set(walletAddress, newSocketId);
+    this.socketToWallet.set(newSocketId, walletAddress);
+    console.log(`Updated socket mapping in GameRoom: ${walletAddress} → ${newSocketId}`);
   }
 
   /**
@@ -795,23 +930,29 @@ export class GameRoom {
   }
 
   /**
-   * Sync full game state to a reconnecting player
+   * Sync full game state to a reconnecting player (by wallet address)
    */
-  syncPlayerState(socketId: string): void {
-    const player = this.players.get(socketId);
+  syncPlayerState(walletAddress: string): void {
+    const player = this.players.get(walletAddress);
     if (!player) {
-      console.warn(`Cannot sync state for unknown player: ${socketId}`);
+      console.warn(`Cannot sync state for unknown player wallet: ${walletAddress}`);
       return;
     }
 
-    console.log(`Syncing full state to ${socketId}`);
+    const socketId = this.getSocketFromWallet(walletAddress);
+    if (!socketId) {
+      console.warn(`Cannot sync state - no socket for wallet: ${walletAddress}`);
+      return;
+    }
+
+    console.log(`Syncing full state to wallet ${walletAddress} (socket: ${socketId})`);
 
     // Build complete game state for this player
     const playerState: PlayerGameState = {
       player,
-      board: this.playerBoards.get(socketId) || { top: [null, null, null, null], bottom: [null, null, null, null] },
-      bench: this.playerBenches.get(socketId) || [],
-      shop: this.playerShops.get(socketId) || { cards: [], rerollCost: REROLL_COST, freeRerolls: 0 },
+      board: this.playerBoards.get(walletAddress) || { top: [null, null, null, null], bottom: [null, null, null, null] },
+      bench: this.playerBenches.get(walletAddress) || [],
+      shop: this.playerShops.get(walletAddress) || { cards: [], rerollCost: REROLL_COST, freeRerolls: 0 },
       items: [], // TODO: Add items when implemented
     };
 
@@ -840,12 +981,12 @@ export class GameRoom {
     this.stateSync.syncPlayerState(socketId, playerState);
 
     // Sync shop
-    const shop = this.playerShops.get(socketId);
+    const shop = this.playerShops.get(walletAddress);
     if (shop) {
       this.stateSync.syncShop(socketId, shop);
     }
 
-    console.log(`✅ State sync complete for ${socketId}`);
+    console.log(`✅ State sync complete for wallet ${walletAddress} (socket: ${socketId})`);
   }
 
   /**

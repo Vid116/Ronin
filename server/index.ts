@@ -27,12 +27,35 @@ setInterval(() => {
 io.on('connection', (socket) => {
   console.log(`Client connected: ${socket.id}`);
 
-  // Check if player has an active match and sync state
-  const existingMatch = matchMaking.getMatchByPlayer(socket.id);
+  // Extract wallet address from auth handshake
+  const walletAddress = socket.handshake.auth.walletAddress as string;
+
+  if (!walletAddress || typeof walletAddress !== 'string') {
+    console.error(`Connection rejected - no wallet address provided`);
+    socket.emit('error', {
+      type: 'AUTH_ERROR',
+      message: 'Wallet address required to connect'
+    });
+    socket.disconnect();
+    return;
+  }
+
+  console.log(`Wallet ${walletAddress} connected with socket ${socket.id}`);
+
+  // Store wallet address on socket for later use
+  (socket as any).walletAddress = walletAddress;
+
+  // Update socket mapping for this wallet
+  matchMaking.updateSocketMapping(walletAddress, socket.id);
+
+  // Check if player has an active match by wallet address
+  const existingMatch = matchMaking.getMatchByWallet(walletAddress);
   if (existingMatch) {
-    console.log(`${socket.id} reconnected to existing match, syncing state...`);
+    console.log(`Wallet ${walletAddress} reconnected to existing match, syncing state...`);
+    // Update the socket mapping in the match
+    existingMatch.updateSocketMapping(walletAddress, socket.id);
     // Send full match state to re-sync the client
-    existingMatch.syncPlayerState(socket.id);
+    existingMatch.syncPlayerState(walletAddress);
   }
 
   // Handle client events
@@ -187,7 +210,15 @@ function handleReady(socket: any) {
 }
 
 function handleDisconnect(socket: any) {
-  matchMaking.handleDisconnect(socket.id);
+  const walletAddress = socket.walletAddress;
+  if (walletAddress) {
+    console.log(`Wallet ${walletAddress} disconnected (socket: ${socket.id})`);
+    matchMaking.handleDisconnect(walletAddress, socket.id);
+  } else {
+    // Fallback for connections without wallet (shouldn't happen)
+    console.warn(`Socket ${socket.id} disconnected without wallet address`);
+    matchMaking.handleDisconnect(socket.id, socket.id);
+  }
 }
 
 // Start server

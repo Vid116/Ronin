@@ -14,11 +14,41 @@ interface QueuedPlayer {
 export class MatchMaking {
   private queue: QueuedPlayer[] = [];
   private activeMatches = new Map<string, GameRoom>();
+  private walletToSocket = new Map<string, string>(); // wallet address → current socket ID
+  private socketToWallet = new Map<string, string>(); // socket ID → wallet address
   private io: SocketIOServer;
   private readonly PLAYERS_PER_MATCH = 6;
 
   constructor(io: SocketIOServer) {
     this.io = io;
+  }
+
+  /**
+   * Update socket mapping for a wallet address
+   */
+  updateSocketMapping(walletAddress: string, socketId: string): void {
+    // Remove old mapping if exists
+    const oldSocketId = this.walletToSocket.get(walletAddress);
+    if (oldSocketId) {
+      this.socketToWallet.delete(oldSocketId);
+    }
+
+    // Add new mapping
+    this.walletToSocket.set(walletAddress, socketId);
+    this.socketToWallet.set(socketId, walletAddress);
+    console.log(`Updated socket mapping: ${walletAddress} → ${socketId}`);
+  }
+
+  /**
+   * Get active match by wallet address
+   */
+  getMatchByWallet(walletAddress: string): GameRoom | null {
+    for (const match of this.activeMatches.values()) {
+      if (match.hasPlayerByWallet(walletAddress)) {
+        return match;
+      }
+    }
+    return null;
   }
 
   /**
