@@ -33,11 +33,13 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
   const board = useGameStore((state) => state.board);
   const bench = useGameStore((state) => state.bench);
   const combatLog = useGameStore((state) => state.combatLog);
-  const buyCard = useGameStore((state) => state.buyCard);
-  const sellCard = useGameStore((state) => state.sellCard);
-  const placeCard = useGameStore((state) => state.placeCard);
-  const rerollShop = useGameStore((state) => state.rerollShop);
-  const buyXP = useGameStore((state) => state.buyXP);
+
+  // Get action methods from socket hook (server-authoritative)
+  const buyCard = socket.buyCard;
+  const sellCard = socket.sellCard;
+  const placeCard = socket.placeCard;
+  const rerollShop = socket.rerollShop;
+  const buyXP = socket.buyXP;
 
   // Debug: Log when component receives new state
   useEffect(() => {

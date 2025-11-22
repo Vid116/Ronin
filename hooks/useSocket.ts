@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
+import { useAccount } from 'wagmi';
 import { ServerEvent, ClientEvent } from '@/types/game';
 import { useGameStore } from '@/store/gameStore';
 import toast from 'react-hot-toast';
@@ -7,6 +8,7 @@ import toast from 'react-hot-toast';
 const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3001';
 
 export function useSocket() {
+  const { address: connectedAddress } = useAccount();
   const socketRef = useRef<Socket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -19,10 +21,17 @@ export function useSocket() {
   const updateShop = useGameStore((state) => state.updateShop);
   const addCombatEvent = useGameStore((state) => state.addCombatEvent);
   const setMatchId = useGameStore((state) => state.setMatchId);
-  const rollbackOptimisticUpdate = useGameStore((state) => state.rollbackOptimisticUpdate);
 
   useEffect(() => {
-    // Initialize socket connection
+    // Don't connect if no wallet is connected
+    if (!connectedAddress) {
+      console.log('⏸️ No wallet connected, not initializing socket');
+      return;
+    }
+
+    console.log(`🔗 Initializing socket with wallet: ${connectedAddress}`);
+
+    // Initialize socket connection with wallet address in auth
     const socket = io(SOCKET_URL, {
       autoConnect: true,
       reconnection: true,
@@ -30,6 +39,9 @@ export function useSocket() {
       reconnectionDelayMax: 5000,
       reconnectionAttempts: 10,
       timeout: 10000,
+      auth: {
+        walletAddress: connectedAddress,
+      },
     });
 
     socketRef.current = socket;
@@ -39,7 +51,7 @@ export function useSocket() {
       setIsConnected(true);
       setError(null);
       reconnectAttemptsRef.current = 0;
-      console.log('Socket connected:', socket.id);
+      console.log('Socket connected:', socket.id, 'for wallet:', connectedAddress);
       toast.success('Connected to game server');
     });
 
@@ -88,17 +100,16 @@ export function useSocket() {
     // Error handling
     socket.on('error', (error: any) => {
       console.error('Socket error:', error);
-      if (error.type === 'GAME_ERROR') {
+      if (error.type === 'GAME_ERROR' || error.type === 'AUTH_ERROR') {
         toast.error(error.message);
-        // Rollback any optimistic updates if error occurred
-        rollbackOptimisticUpdate();
       }
     });
 
     return () => {
+      console.log('🔌 Disconnecting socket for wallet:', connectedAddress);
       socket.disconnect();
     };
-  }, []);
+  }, [connectedAddress]); // Reconnect when wallet changes
 
   const handleServerEvent = useCallback((event: ServerEvent) => {
     console.log('🔵 Server event received:', event.type, event.data);
@@ -112,9 +123,10 @@ export function useSocket() {
         });
         setMatchId(event.data.id);
         // Initialize game state with match data
-        const myPlayer = event.data.players.find(p => p.id === socketRef.current?.id);
+        // Find our player by wallet address (server uses wallet as player.id)
+        const myPlayer = event.data.players.find(p => p.address === connectedAddress);
         updateFromServer({
-          opponents: event.data.players.filter(p => p.id !== socketRef.current?.id),
+          opponents: event.data.players.filter(p => p.address !== connectedAddress),
           player: myPlayer || useGameStore.getState().player,
           round: event.data.currentRound || 1,
           phase: 'PLANNING',
@@ -129,12 +141,9 @@ export function useSocket() {
           phase: event.data.phase,
           timeRemaining: Math.ceil(event.data.timeRemaining / 1000)
         });
-        console.log('📊 [ROUND_START] Calling setRound with:', event.data.round);
         setRound(event.data.round);
-        console.log('📊 [ROUND_START] Calling setPhase with:', event.data.phase);
         setPhase(event.data.phase);
         // Use server-provided timeRemaining (converted from ms to seconds)
-        console.log('📊 [ROUND_START] Calling setTimeRemaining with:', Math.ceil(event.data.timeRemaining / 1000));
         setTimeRemaining(Math.ceil(event.data.timeRemaining / 1000));
 
         const phaseLabel = event.data.phase === 'PLANNING' ? 'Planning Phase' :
@@ -152,10 +161,8 @@ export function useSocket() {
           phase: 'COMBAT',
           timeRemaining: Math.ceil(event.data.timeRemaining / 1000)
         });
-        console.log('📊 [COMBAT_START] Calling setPhase with: COMBAT');
         setPhase('COMBAT');
         // Use server-provided timeRemaining (converted from ms to seconds)
-        console.log('📊 [COMBAT_START] Calling setTimeRemaining with:', Math.ceil(event.data.timeRemaining / 1000));
         setTimeRemaining(Math.ceil(event.data.timeRemaining / 1000));
         updateFromServer({ currentOpponent: event.data.opponent.player });
         toast('Combat starting!', { icon: '⚔️' });
@@ -176,10 +183,9 @@ export function useSocket() {
           phase: 'TRANSITION',
           damage: event.data.damage
         });
-        console.log('📊 [ROUND_END] Calling setPhase with: TRANSITION');
         setPhase('TRANSITION');
 
-        // Use server's authoritative player state instead of calculating
+        // Use server's authoritative player state
         updateFromServer({
           player: event.data.player,
         });
@@ -196,8 +202,9 @@ export function useSocket() {
         break;
 
       case 'MATCH_END':
+        // Find our placement by wallet address
         const myPlacement = event.data.placements.find(
-          (p) => p.playerId === socketRef.current?.id
+          (p) => p.playerId === connectedAddress
         );
 
         if (myPlacement) {
@@ -220,7 +227,7 @@ export function useSocket() {
         }
         break;
     }
-  }, [setMatchId, setPhase, setRound, setTimeRemaining, updateShop, addCombatEvent, updateFromServer, rollbackOptimisticUpdate]);
+  }, [connectedAddress, setMatchId, setPhase, setRound, setTimeRemaining, updateShop, addCombatEvent, updateFromServer]);
 
   const emit = useCallback((eventType: string, data?: any) => {
     if (!socketRef.current?.connected) {
