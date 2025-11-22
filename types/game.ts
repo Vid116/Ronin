@@ -5,7 +5,7 @@ export type GamePhase = 'PLANNING' | 'COMBAT' | 'TRANSITION';
 export interface Unit {
   id: string;
   name: string;
-  tier: 1 | 2 | 3 | 4 | 5;
+  tier: 1 | 2 | 3 | 4 | 5 | 6;
   cost: number;
   attack: number;
   health: number;
@@ -154,6 +154,7 @@ export const TIER_COLORS: Record<number, string> = {
   3: 'text-blue-400',
   4: 'text-purple-400',
   5: 'text-yellow-400',
+  6: 'text-orange-400',
 };
 
 export const MAX_BOARD_SIZE = 8;

@@ -2,6 +2,7 @@ import { useAccount, useBalance } from 'wagmi';
 import { useEffect } from 'react';
 import { usePlayerStore } from '@/store/playerStore';
 import { useGameStore } from '@/store/gameStore';
+import { useSocket } from './useSocket';
 
 export function useGame() {
   const { address, isConnected, isConnecting } = useAccount();
@@ -14,6 +15,10 @@ export function useGame() {
   const matchId = useGameStore((state) => state.matchId);
   const round = useGameStore((state) => state.round);
   const phase = useGameStore((state) => state.phase);
+  const setSocketEmit = useGameStore((state) => state.setSocketEmit);
+
+  // Get socket functions
+  const socket = useSocket();
 
   // Sync wallet address to player store
   useEffect(() => {
@@ -21,6 +26,13 @@ export function useGame() {
       setAddress(address);
     }
   }, [address, playerAddress, setAddress]);
+
+  // Connect socket emit to game store
+  useEffect(() => {
+    if (socket.emit) {
+      setSocketEmit(socket.emit);
+    }
+  }, [socket.emit, setSocketEmit]);
 
   return {
     // Wallet Info
@@ -38,5 +50,8 @@ export function useGame() {
     round,
     phase,
     isInMatch: !!matchId,
+
+    // Socket functions
+    socket,
   };
 }

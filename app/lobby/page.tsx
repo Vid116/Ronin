@@ -6,6 +6,7 @@ import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useGame } from '@/hooks/useGame';
 import { usePlayerStore } from '@/store/playerStore';
+import { useGameStore } from '@/store/gameStore';
 import toast from 'react-hot-toast';
 
 export default function LobbyPage() {
@@ -13,8 +14,9 @@ export default function LobbyPage() {
   const searchParams = useSearchParams();
   const stake = Number(searchParams.get('stake')) || 0;
 
-  const { address, isConnected, balance } = useGame();
+  const { address, isConnected, balance, socket } = useGame();
   const { queue, joinQueue, leaveQueue, updateQueueCount } = usePlayerStore();
+  const matchId = useGameStore((state) => state.matchId);
 
   const [timeInQueue, setTimeInQueue] = useState(0);
 
@@ -24,6 +26,14 @@ export default function LobbyPage() {
       router.push('/');
     }
   }, [isConnected, router]);
+
+  // Redirect to match when match is found
+  useEffect(() => {
+    if (matchId) {
+      console.log('Match found, redirecting to match:', matchId);
+      router.push(`/match/${matchId}`);
+    }
+  }, [matchId, router]);
 
   // Update queue timer
   useEffect(() => {
@@ -35,37 +45,44 @@ export default function LobbyPage() {
     }
   }, [queue.isQueuing, queue.queueStartTime]);
 
-  // Simulate matchmaking for demo
+  // Simulate queue player count for demo (in real app, this comes from server)
   useEffect(() => {
     if (queue.isQueuing) {
       const interval = setInterval(() => {
         const currentCount = queue.playersInQueue;
         if (currentCount < 6) {
-          updateQueueCount(Math.min(currentCount + 1, 6));
-        } else {
-          // Match found!
-          toast.success('Match found! 🎮');
-          setTimeout(() => {
-            router.push('/match/demo-match-id');
-          }, 1000);
+          updateQueueCount(Math.min(currentCount + Math.floor(Math.random() * 2), 6));
         }
-      }, 2000);
+      }, 3000);
       return () => clearInterval(interval);
     }
-  }, [queue.isQueuing, queue.playersInQueue, updateQueueCount, router]);
+  }, [queue.isQueuing, queue.playersInQueue, updateQueueCount]);
 
   const handleJoinQueue = () => {
+    if (!socket.isConnected) {
+      toast.error('Not connected to game server. Please refresh.');
+      return;
+    }
+
     if (stake > 0 && balance && parseFloat(balance) < stake) {
       toast.error(`Insufficient balance. Need ${stake} RON`);
       return;
     }
-    joinQueue(stake);
-    toast.success('Joining queue...');
+
+    // Join queue via socket
+    const success = socket.joinQueue(stake);
+    if (success) {
+      joinQueue(stake);
+      toast.success('Searching for opponents...');
+    } else {
+      toast.error('Failed to join queue');
+    }
   };
 
   const handleLeaveQueue = () => {
     leaveQueue();
     toast.success('Left queue');
+    // TODO: Notify server to remove from queue
   };
 
   const rewards = {
@@ -91,7 +108,20 @@ export default function LobbyPage() {
           <span className="text-2xl">⚔️</span>
           <h1 className="text-2xl font-bold text-white">Ronin Rumble</h1>
         </button>
-        <ConnectButton />
+        <div className="flex items-center gap-4">
+          {/* Connection Indicator */}
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-800 rounded-lg border border-gray-700">
+            <div
+              className={`w-2 h-2 rounded-full ${
+                socket.isConnected ? 'bg-green-500' : 'bg-red-500'
+              }`}
+            />
+            <span className="text-xs text-gray-400">
+              {socket.isConnected ? 'Connected' : 'Disconnected'}
+            </span>
+          </div>
+          <ConnectButton />
+        </div>
       </header>
 
       <div className="container mx-auto px-4 py-8 max-w-4xl">
@@ -194,18 +224,18 @@ export default function LobbyPage() {
 
               {/* Rewards */}
               <div className="bg-gray-800/50 backdrop-blur rounded-lg p-6 border border-gray-700">
-                <h3 className="text-xl font-bold mb-4 text-white">🏆 Rewards</h3>
+                <h3 className="text-xl font-bold mb-4 text-white">Rewards</h3>
                 <div className="space-y-3">
                   <div className="flex justify-between items-center p-3 bg-yellow-900/20 border border-yellow-700 rounded-lg">
-                    <span className="font-bold text-yellow-400">🥇 1st Place:</span>
+                    <span className="font-bold text-yellow-400">1st Place</span>
                     <span className="font-bold text-yellow-300 text-xl">{rewards?.first}</span>
                   </div>
                   <div className="flex justify-between items-center p-3 bg-gray-700/20 border border-gray-600 rounded-lg">
-                    <span className="font-bold text-gray-300">🥈 2nd Place:</span>
+                    <span className="font-bold text-gray-300">2nd Place</span>
                     <span className="font-bold text-gray-200">{rewards?.second}</span>
                   </div>
                   <div className="flex justify-between items-center p-3 bg-orange-900/20 border border-orange-700 rounded-lg">
-                    <span className="font-bold text-orange-400">🥉 3rd Place:</span>
+                    <span className="font-bold text-orange-400">3rd Place</span>
                     <span className="font-bold text-orange-300">{rewards?.third}</span>
                   </div>
                 </div>
@@ -213,7 +243,7 @@ export default function LobbyPage() {
 
               {/* Game Info */}
               <div className="bg-gray-800/50 backdrop-blur rounded-lg p-6 border border-gray-700">
-                <h3 className="text-xl font-bold mb-4 text-white">📋 Game Info</h3>
+                <h3 className="text-xl font-bold mb-4 text-white">Game Info</h3>
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div className="flex items-center gap-2">
                     <span className="text-2xl">⚡</span>
@@ -252,18 +282,35 @@ export default function LobbyPage() {
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
                   onClick={handleJoinQueue}
-                  className="flex-1 py-4 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 rounded-lg font-bold text-xl text-white transition-all"
+                  disabled={!socket.isConnected}
+                  className={`
+                    flex-1 py-4 rounded-lg font-bold text-xl text-white transition-all
+                    ${socket.isConnected
+                      ? 'bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700'
+                      : 'bg-gray-700 cursor-not-allowed'
+                    }
+                  `}
                 >
-                  🎮 Find Match
+                  {socket.isConnected ? 'Find Match' : 'Connecting...'}
                 </motion.button>
 
                 <button
                   onClick={() => router.push('/')}
                   className="px-8 py-4 bg-gray-700 hover:bg-gray-600 rounded-lg font-bold text-white transition-all"
                 >
-                  ← Back
+                  Back
                 </button>
               </div>
+
+              {!socket.isConnected && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="text-center text-yellow-400 text-sm"
+                >
+                  Connecting to game server...
+                </motion.div>
+              )}
             </motion.div>
           )}
         </AnimatePresence>
