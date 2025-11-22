@@ -36,6 +36,10 @@ io.on('connection', (socket) => {
         handleJoinQueue(socket, event.data.entryFee);
         break;
 
+      case 'JOIN_BOT_MATCH':
+        handleJoinBotMatch(socket, event.data.entryFee);
+        break;
+
       case 'BUY_CARD':
         handleBuyCard(socket, event.data.cardIndex);
         break;
@@ -79,6 +83,11 @@ io.on('connection', (socket) => {
 function handleJoinQueue(socket: any, entryFee: number) {
   console.log(`${socket.id} joining queue with entry fee: ${entryFee}`);
   matchMaking.addToQueue(socket.id, entryFee);
+}
+
+function handleJoinBotMatch(socket: any, entryFee: number) {
+  console.log(`${socket.id} creating bot match with entry fee: ${entryFee}`);
+  matchMaking.createBotMatch(socket.id, entryFee);
 }
 
 function handleBuyCard(socket: any, cardIndex: number) {

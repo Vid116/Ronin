@@ -1,8 +1,9 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
 import { loadFixture } from "@nomicfoundation/hardhat-network-helpers";
-import { RoninRumbleMain, RoninRumbleNFT } from "../../typechain-types";
-import { SignerWithAddress } from "@nomicfoundation/hardhat-ethers/signers";
+import { RoninRumbleMain__factory, RoninRumbleNFT__factory } from "../../typechain-types";
+import type { RoninRumbleMain, RoninRumbleNFT } from "../../typechain-types";
+import type { SignerWithAddress } from "@nomicfoundation/hardhat-ethers/signers";
 
 describe("RoninRumbleMain", function () {
   // Entry fee tiers
@@ -14,11 +15,9 @@ describe("RoninRumbleMain", function () {
     const [owner, gameServer, player1, player2, player3, player4, player5, player6, player7] =
       await ethers.getSigners();
 
-    const RoninRumbleMain = await ethers.getContractFactory("RoninRumbleMain");
-    const mainContract = await RoninRumbleMain.deploy(gameServer.address);
+    const mainContract = await new RoninRumbleMain__factory(owner).deploy(gameServer.address);
 
-    const RoninRumbleNFT = await ethers.getContractFactory("RoninRumbleNFT");
-    const nftContract = await RoninRumbleNFT.deploy("https://api.roninrumble.com/metadata/");
+    const nftContract = await new RoninRumbleNFT__factory(owner).deploy("https://api.roninrumble.com/metadata/");
 
     return {
       mainContract,
@@ -58,9 +57,10 @@ describe("RoninRumbleMain", function () {
     it("Should allow game server to create a match", async function () {
       const { mainContract, gameServer } = await loadFixture(deployContractsFixture);
 
+      const latestBlock = await ethers.provider.getBlock("latest");
       await expect(mainContract.connect(gameServer).createMatch(TIER_1))
         .to.emit(mainContract, "MatchCreated")
-        .withArgs(1, TIER_1, await ethers.provider.getBlock("latest").then(b => b!.timestamp + 1));
+        .withArgs(1, TIER_1, (latestBlock?.timestamp ?? 0) + 1);
 
       const match = await mainContract.getMatch(1);
       expect(match.entryFee).to.equal(TIER_1);
@@ -161,7 +161,7 @@ describe("RoninRumbleMain", function () {
       }
 
       // Finalize
-      const playerAddresses = players.map(p => p.address) as [string, string, string, string, string, string];
+      const playerAddresses = players.map((p: SignerWithAddress) => p.address) as [string, string, string, string, string, string];
       const placements = [1, 2, 3, 4, 5, 6] as [number, number, number, number, number, number];
       await mainContract.connect(gameServer).submitMatchResults(1, playerAddresses, placements);
 
@@ -188,7 +188,7 @@ describe("RoninRumbleMain", function () {
     it("Should finalize match with valid results", async function () {
       const { mainContract, gameServer, players } = await loadFixture(createFullMatchFixture);
 
-      const playerAddresses = players.map(p => p.address) as [string, string, string, string, string, string];
+      const playerAddresses = players.map((p: SignerWithAddress) => p.address) as [string, string, string, string, string, string];
       const placements = [1, 2, 3, 4, 5, 6] as [number, number, number, number, number, number];
 
       await expect(mainContract.connect(gameServer).submitMatchResults(1, playerAddresses, placements))
@@ -209,7 +209,7 @@ describe("RoninRumbleMain", function () {
       const expectedSecondPrize = (distributionPool * BigInt(180)) / BigInt(1000); // 18%
       const expectedThirdPrize = (distributionPool * BigInt(100)) / BigInt(1000); // 10%
 
-      const playerAddresses = players.map(p => p.address) as [string, string, string, string, string, string];
+      const playerAddresses = players.map((p: SignerWithAddress) => p.address) as [string, string, string, string, string, string];
       const placements = [1, 2, 3, 4, 5, 6] as [number, number, number, number, number, number];
 
       await mainContract.connect(gameServer).submitMatchResults(1, playerAddresses, placements);
@@ -224,7 +224,7 @@ describe("RoninRumbleMain", function () {
     it("Should reject invalid placements (duplicate)", async function () {
       const { mainContract, gameServer, players } = await loadFixture(createFullMatchFixture);
 
-      const playerAddresses = players.map(p => p.address) as [string, string, string, string, string, string];
+      const playerAddresses = players.map((p: SignerWithAddress) => p.address) as [string, string, string, string, string, string];
       const placements = [1, 1, 3, 4, 5, 6] as [number, number, number, number, number, number];
 
       await expect(
@@ -235,7 +235,7 @@ describe("RoninRumbleMain", function () {
     it("Should reject invalid placements (out of range)", async function () {
       const { mainContract, gameServer, players } = await loadFixture(createFullMatchFixture);
 
-      const playerAddresses = players.map(p => p.address) as [string, string, string, string, string, string];
+      const playerAddresses = players.map((p: SignerWithAddress) => p.address) as [string, string, string, string, string, string];
       const placements = [0, 2, 3, 4, 5, 6] as [number, number, number, number, number, number];
 
       await expect(
@@ -246,7 +246,7 @@ describe("RoninRumbleMain", function () {
     it("Should reject if player not in match", async function () {
       const { mainContract, gameServer, players, player7 } = await loadFixture(createFullMatchFixture);
 
-      const playerAddresses = [...players.slice(0, 5).map(p => p.address), player7.address] as [string, string, string, string, string, string];
+      const playerAddresses = [...players.slice(0, 5).map((p: SignerWithAddress) => p.address), player7.address] as [string, string, string, string, string, string];
       const placements = [1, 2, 3, 4, 5, 6] as [number, number, number, number, number, number];
 
       await expect(
@@ -257,7 +257,7 @@ describe("RoninRumbleMain", function () {
     it("Should reject double finalization", async function () {
       const { mainContract, gameServer, players } = await loadFixture(createFullMatchFixture);
 
-      const playerAddresses = players.map(p => p.address) as [string, string, string, string, string, string];
+      const playerAddresses = players.map((p: SignerWithAddress) => p.address) as [string, string, string, string, string, string];
       const placements = [1, 2, 3, 4, 5, 6] as [number, number, number, number, number, number];
 
       await mainContract.connect(gameServer).submitMatchResults(1, playerAddresses, placements);
@@ -270,7 +270,7 @@ describe("RoninRumbleMain", function () {
     it("Should only allow game server to submit results", async function () {
       const { mainContract, owner, players } = await loadFixture(createFullMatchFixture);
 
-      const playerAddresses = players.map(p => p.address) as [string, string, string, string, string, string];
+      const playerAddresses = players.map((p: SignerWithAddress) => p.address) as [string, string, string, string, string, string];
       const placements = [1, 2, 3, 4, 5, 6] as [number, number, number, number, number, number];
 
       await expect(
@@ -290,7 +290,7 @@ describe("RoninRumbleMain", function () {
         await mainContract.connect(players[i]).joinMatch(1, { value: TIER_2 });
       }
 
-      const playerAddresses = players.map(p => p.address) as [string, string, string, string, string, string];
+      const playerAddresses = players.map((p: SignerWithAddress) => p.address) as [string, string, string, string, string, string];
       const placements = [1, 2, 3, 4, 5, 6] as [number, number, number, number, number, number];
       await mainContract.connect(gameServer).submitMatchResults(1, playerAddresses, placements);
 
@@ -305,7 +305,7 @@ describe("RoninRumbleMain", function () {
 
       const tx = await mainContract.connect(players[0]).claimRewards();
       const receipt = await tx.wait();
-      const gasUsed = receipt!.gasUsed * receipt!.gasPrice;
+      const gasUsed = receipt ? receipt.gasUsed * receipt.gasPrice : BigInt(0);
 
       const finalBalance = await ethers.provider.getBalance(players[0].address);
 
@@ -355,7 +355,7 @@ describe("RoninRumbleMain", function () {
         await mainContract.connect(players[i]).joinMatch(1, { value: TIER_2 });
       }
 
-      const playerAddresses = players.map(p => p.address) as [string, string, string, string, string, string];
+      const playerAddresses = players.map((p: SignerWithAddress) => p.address) as [string, string, string, string, string, string];
       const placements = [1, 2, 3, 4, 5, 6] as [number, number, number, number, number, number];
       await mainContract.connect(gameServer).submitMatchResults(1, playerAddresses, placements);
 
@@ -458,8 +458,7 @@ describe("RoninRumbleNFT", function () {
   async function deployNFTFixture() {
     const [owner, player1, player2] = await ethers.getSigners();
 
-    const RoninRumbleNFT = await ethers.getContractFactory("RoninRumbleNFT");
-    const nftContract = await RoninRumbleNFT.deploy("https://api.roninrumble.com/metadata/");
+    const nftContract = await new RoninRumbleNFT__factory(owner).deploy("https://api.roninrumble.com/metadata/");
 
     return { nftContract, owner, player1, player2 };
   }

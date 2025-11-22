@@ -1,10 +1,13 @@
 import { Server as SocketIOServer } from 'socket.io';
 import { GameRoom } from './GameRoom';
+import { BotPlayer } from './BotPlayer';
 
 interface QueuedPlayer {
   socketId: string;
   entryFee: number;
   joinedAt: number;
+  isBot?: boolean;
+  botName?: string;
 }
 
 export class MatchMaking {
@@ -161,6 +164,71 @@ export class MatchMaking {
       queueSize: this.queue.length,
       activeMatches: this.activeMatches.size,
     };
+  }
+
+  /**
+   * Create a bot match (1 human player vs 5 bots)
+   */
+  createBotMatch(socketId: string, entryFee: number): void {
+    console.log(`Creating bot match for ${socketId} with entry fee: ${entryFee}`);
+
+    const matchId = `bot-match-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+    // Create player list: 1 human + 5 bots
+    const matchPlayers: QueuedPlayer[] = [
+      {
+        socketId,
+        entryFee,
+        joinedAt: Date.now(),
+        isBot: false,
+      }
+    ];
+
+    // Add 5 bots
+    for (let i = 0; i < 5; i++) {
+      const botId = `bot_${matchId}_${i}`;
+      matchPlayers.push({
+        socketId: botId,
+        entryFee,
+        joinedAt: Date.now(),
+        isBot: true,
+        botName: BotPlayer.generateBotName(),
+      });
+    }
+
+    // Create game room
+    const gameRoom = new GameRoom(matchId, matchPlayers, this.io);
+    this.activeMatches.set(matchId, gameRoom);
+
+    // Notify player that bot match was created
+    this.io.to(socketId).emit('server_event', {
+      type: 'MATCH_FOUND',
+      data: {
+        id: matchId,
+        players: matchPlayers.map((p, i) => ({
+          id: p.socketId,
+          address: `0x${i.toString().padStart(40, '0')}`,
+          health: 20,
+          gold: 3,
+          level: 1,
+          xp: 0,
+          winStreak: 0,
+          loseStreak: 0,
+          isBot: p.isBot,
+          botName: p.botName,
+        })),
+        entryFee: entryFee,
+        prizePool: entryFee * this.PLAYERS_PER_MATCH,
+        status: 'IN_PROGRESS' as const,
+        currentRound: 1,
+        createdAt: Date.now(),
+        isBotMatch: true,
+      },
+    });
+
+    // Start the match
+    console.log(`Starting bot match ${matchId}`);
+    gameRoom.start();
   }
 
   /**

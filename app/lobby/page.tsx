@@ -85,6 +85,26 @@ export default function LobbyPage() {
     // TODO: Notify server to remove from queue
   };
 
+  const handleJoinBotMatch = () => {
+    if (!socket.isConnected) {
+      toast.error('Not connected to game server. Please refresh.');
+      return;
+    }
+
+    if (stake > 0 && balance && parseFloat(balance) < stake) {
+      toast.error(`Insufficient balance. Need ${stake} RON`);
+      return;
+    }
+
+    // Join bot match via socket
+    const success = socket.joinBotMatch(stake);
+    if (success) {
+      toast.success('Starting bot match...');
+    } else {
+      toast.error('Failed to create bot match');
+    }
+  };
+
   const rewards = {
     0: { first: 'Glory', second: 'Honor', third: 'Experience' },
     2: { first: '8 RON', second: '2 RON', third: '0 RON' },
@@ -300,6 +320,38 @@ export default function LobbyPage() {
                 >
                   Back
                 </button>
+              </div>
+
+              {/* Bot Match Option */}
+              <div className="border-t border-gray-700 pt-6">
+                <div className="bg-gray-800/50 backdrop-blur rounded-lg p-6 border border-purple-700">
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                        <span className="text-2xl">🤖</span>
+                        Practice vs Bots
+                      </h3>
+                      <p className="text-sm text-gray-400 mt-1">
+                        Play against AI opponents to test strategies
+                      </p>
+                    </div>
+                  </div>
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={handleJoinBotMatch}
+                    disabled={!socket.isConnected}
+                    className={`
+                      w-full py-3 rounded-lg font-bold text-lg text-white transition-all
+                      ${socket.isConnected
+                        ? 'bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700'
+                        : 'bg-gray-700 cursor-not-allowed'
+                      }
+                    `}
+                  >
+                    {socket.isConnected ? 'Start Bot Match' : 'Connecting...'}
+                  </motion.button>
+                </div>
               </div>
 
               {!socket.isConnected && (

@@ -239,6 +239,10 @@ export function useSocket() {
     return emit({ type: 'READY' });
   }, [emit]);
 
+  const joinBotMatch = useCallback((entryFee: number) => {
+    return emit({ type: 'JOIN_BOT_MATCH', data: { entryFee } });
+  }, [emit]);
+
   return {
     isConnected,
     error,
@@ -249,6 +253,7 @@ export function useSocket() {
 
     // Specific emitters
     joinQueue,
+    joinBotMatch,
     buyCard,
     sellCard,
     placeCard,

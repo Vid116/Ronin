@@ -5,10 +5,13 @@ import { EconomyManager } from './EconomyManager';
 import { RoundManager } from './RoundManager';
 import { StateSync, PlayerGameState } from './StateSync';
 import { CombatSimulator } from './CombatSimulator';
+import { BotPlayer, createBotPlayers } from './BotPlayer';
 
 interface QueuedPlayer {
   socketId: string;
   entryFee: number;
+  isBot?: boolean;
+  botName?: string;
 }
 
 const REROLL_COST = 2;
@@ -25,6 +28,8 @@ export class GameRoom {
   private playerShops: Map<string, Shop>;
   private playerReadyStatus: Map<string, boolean>;
   private disconnectedPlayers: Set<string>;
+  private botPlayers: Map<string, BotPlayer>;
+  private isBotMatch: boolean;
 
   // Game systems
   private shopGenerator: ShopGenerator;
@@ -56,6 +61,8 @@ export class GameRoom {
     this.playerReadyStatus = new Map();
     this.disconnectedPlayers = new Set();
     this.eliminatedPlayers = new Set();
+    this.botPlayers = new Map();
+    this.isBotMatch = queuedPlayers.some(qp => qp.isBot);
 
     // Create player objects
     queuedPlayers.forEach((qp, index) => {
@@ -83,6 +90,11 @@ export class GameRoom {
 
       // Initialize ready status
       this.playerReadyStatus.set(qp.socketId, false);
+
+      // If this is a bot, create the bot AI
+      if (qp.isBot) {
+        this.botPlayers.set(qp.socketId, new BotPlayer(qp.socketId, 'easy'));
+      }
     });
 
     // Set up round manager callbacks
@@ -155,6 +167,75 @@ export class GameRoom {
     this.playerReadyStatus.forEach((_, playerId) => {
       this.playerReadyStatus.set(playerId, false);
     });
+
+    // Execute bot turns
+    if (this.isBotMatch) {
+      this.executeBotTurns(round);
+    }
+  }
+
+  /**
+   * Execute bot AI turns during planning phase
+   */
+  private async executeBotTurns(round: number): Promise<void> {
+    for (const [botId, bot] of this.botPlayers.entries()) {
+      if (this.eliminatedPlayers.has(botId)) continue;
+
+      const player = this.players.get(botId);
+      const shop = this.playerShops.get(botId);
+
+      if (!player || !shop) continue;
+
+      // Convert shop to format bot expects
+      const shopCards = shop.cards.map((card, index) => ({
+        ...card,
+        index
+      }));
+
+      // Create a player state for the bot
+      const playerState = {
+        ...player,
+        bench: this.playerBenches.get(botId) || [],
+        board: this.getAllUnitsFromBoard(this.playerBoards.get(botId)!)
+      };
+
+      // Execute bot turn with action callbacks
+      await bot.executeTurn(playerState, shopCards, round, (action, data) => {
+        this.handleBotAction(botId, action, data);
+      });
+
+      // Mark bot as ready
+      this.playerReadyStatus.set(botId, true);
+    }
+  }
+
+  /**
+   * Handle bot action
+   */
+  private handleBotAction(botId: string, action: string, data: any): void {
+    switch (action) {
+      case 'reroll':
+        this.handleRerollShop(botId);
+        break;
+      case 'levelUp':
+        this.handleBuyXP(botId);
+        break;
+      case 'buyCard':
+        this.handleBuyCard(botId, data.shopIndex);
+        break;
+      case 'sellCard':
+        const bench = this.playerBenches.get(botId);
+        if (bench && bench[data.benchIndex]) {
+          this.handleSellCard(botId, bench[data.benchIndex].id);
+        }
+        break;
+      case 'moveCard':
+        const moveBench = this.playerBenches.get(botId);
+        if (moveBench && moveBench[data.benchIndex]) {
+          this.handlePlaceCard(botId, moveBench[data.benchIndex].id, data.boardIndex);
+        }
+        break;
+    }
   }
 
   /**

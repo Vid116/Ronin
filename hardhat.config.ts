@@ -6,6 +6,12 @@ import * as dotenv from "dotenv";
 
 dotenv.config();
 
+// Configure ts-node to use the Hardhat-specific TypeScript config
+import { register } from "ts-node";
+register({
+  project: "./tsconfig.hardhat.json",
+});
+
 const config: HardhatUserConfig = {
   solidity: {
     version: "0.8.20",
@@ -25,14 +31,14 @@ const config: HardhatUserConfig = {
       url: process.env.RONIN_TESTNET_RPC || "https://saigon-testnet.roninchain.com/rpc",
       chainId: 2021,
       accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
-      gasPrice: 20000000000, // 20 gwei
+      gasPrice: 21000000000, // 21 gwei - minimum for Ronin testnet
     },
     // Ronin Mainnet
     roninMainnet: {
       url: process.env.RONIN_MAINNET_RPC || "https://api.roninchain.com/rpc",
       chainId: 2020,
       accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
-      gasPrice: 20000000000, // 20 gwei
+      gasPrice: 21000000000, // 21 gwei - minimum for Ronin mainnet
     },
   },
   gasReporter: {
