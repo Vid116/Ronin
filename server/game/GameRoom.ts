@@ -1058,8 +1058,17 @@ export class GameRoom {
       this.roundManager.getTimeRemaining()
     );
 
-    // Sync player's current state
-    this.stateSync.syncPlayerState(socketId, playerState);
+    // Sync player's full game state
+    const opponents = Array.from(this.players.values()).filter(p => p.id !== walletAddress);
+    this.stateSync.syncFullState(
+      socketId,
+      this.matchId,
+      this.roundManager.getCurrentRound(),
+      this.roundManager.getCurrentPhase(),
+      this.roundManager.getTimeRemaining(),
+      playerState,
+      opponents
+    );
 
     // Sync shop
     const shop = this.playerShops.get(walletAddress);
