@@ -3,7 +3,8 @@ import { parseEther } from 'viem';
 import toast from 'react-hot-toast';
 
 // Contract address from environment
-const GAME_CONTRACT_ADDRESS = (process.env.NEXT_PUBLIC_RONIN_RUMBLE_MAIN_ADDRESS || '0x0B46aF2F581c163ff7b1dD6d2aFedDa86066ABDA') as `0x${string}`;
+// Use 1v1 contract if available (for 2-player matches), otherwise use main contract
+const GAME_CONTRACT_ADDRESS = (process.env.NEXT_PUBLIC_RONIN_RUMBLE_1V1_ADDRESS || process.env.NEXT_PUBLIC_RONIN_RUMBLE_MAIN_ADDRESS || '0x0B46aF2F581c163ff7b1dD6d2aFedDa86066ABDA') as `0x${string}`;
 
 // Minimal ABI for the functions we need
 const GAME_CONTRACT_ABI = [

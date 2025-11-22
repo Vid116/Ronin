@@ -12,6 +12,7 @@ export class ContractService {
   private wallet: ethers.Wallet;
   private contract: ethers.Contract;
   private contractAddress: string;
+  private playersPerMatch: number;
 
   constructor() {
     // Get RPC URL from environment or use default testnet
@@ -28,9 +29,27 @@ export class ContractService {
 
     this.wallet = new ethers.Wallet(privateKey, this.provider);
 
-    // Get contract address and ABI from deployment files
-    this.contractAddress = deployment.contracts.RoninRumbleMain.address;
-    const abi = contractAbis.RoninRumbleMain.abi;
+    // Determine which contract to use based on PLAYERS_PER_MATCH
+    this.playersPerMatch = parseInt(process.env.PLAYERS_PER_MATCH || '6', 10);
+
+    let abi: any;
+    if (this.playersPerMatch === 2) {
+      // Use 1v1 contract for 2-player matches
+      try {
+        const deployment1v1 = require('../../deployment1v1.json');
+        const contractAbis1v1 = require('../../contract-abis-1v1.json');
+        this.contractAddress = deployment1v1.contract.RoninRumble1v1.address;
+        abi = contractAbis1v1.RoninRumble1v1.abi;
+        logger.info('Using 1v1 contract for 2-player matches');
+      } catch (error) {
+        throw new Error('1v1 contract deployment not found. Run: npm run deploy:1v1:testnet');
+      }
+    } else {
+      // Use main contract for 6-player matches
+      this.contractAddress = deployment.contracts.RoninRumbleMain.address;
+      abi = contractAbis.RoninRumbleMain.abi;
+      logger.info('Using main contract for 6-player matches');
+    }
 
     // Initialize contract instance
     this.contract = new ethers.Contract(this.contractAddress, abi, this.wallet);
@@ -38,7 +57,8 @@ export class ContractService {
     logger.info('Contract Service initialized', {
       contract: this.contractAddress,
       gameServer: this.wallet.address,
-      network: rpcUrl
+      network: rpcUrl,
+      playersPerMatch: this.playersPerMatch
     });
   }
 

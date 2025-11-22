@@ -1,0 +1,21 @@
+{
+  "network": "roninTestnet",
+  "chainId": "2021",
+  "deployer": "0xfDF0e775aC0E946DC940e3ad301e1E64fc722C51",
+  "timestamp": "2025-11-22T21:42:09.158Z",
+  "contract": {
+    "RoninRumble1v1": {
+      "address": "0xbC174094A14F2cf8aaBafE90B6e72D15853B4de1",
+      "gameServer": "0xfDF0e775aC0E946DC940e3ad301e1E64fc722C51"
+    }
+  },
+  "entryFees": {
+    "tier1": "0.001 RON",
+    "tier2": "0.005 RON",
+    "tier3": "0.01 RON"
+  },
+  "prizeDistribution": {
+    "platformFee": "8.3%",
+    "winner": "91.7%"
+  }
+}

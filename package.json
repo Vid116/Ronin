@@ -18,6 +18,8 @@
     "coverage:contracts": "hardhat coverage",
     "deploy:testnet": "hardhat run scripts/deploy.ts --network roninTestnet",
     "deploy:mainnet": "hardhat run scripts/deploy.ts --network roninMainnet",
+    "deploy:1v1:testnet": "hardhat run scripts/deploy1v1.ts --network roninTestnet",
+    "deploy:1v1:mainnet": "hardhat run scripts/deploy1v1.ts --network roninMainnet",
     "verify:testnet": "hardhat run scripts/verify.ts --network roninTestnet",
     "verify:mainnet": "hardhat run scripts/verify.ts --network roninMainnet",
     "create-match": "hardhat run scripts/create-match.ts --network roninTestnet",

@@ -67,13 +67,13 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
       return;
     }
 
-    // Combat phase timeline (assuming 15s total):
-    // 0-10s (timeRemaining 15-6): Show START state
-    // 5-0s (timeRemaining 5-0): Show END state
-    if (timeRemaining > 5) {
-      setShowFinalCombatState(false); // Show combat start
+    // Combat phase timeline (15s total):
+    // 0-8s (timeRemaining 15-8): Show START state (8 seconds)
+    // 8-15s (timeRemaining 7-0): Show END state (7 seconds)
+    if (timeRemaining > 7) {
+      setShowFinalCombatState(false); // Show combat start for 8s
     } else {
-      setShowFinalCombatState(true); // Show combat end
+      setShowFinalCombatState(true); // Show combat end for 7s
     }
   }, [phase, timeRemaining, combatInitialBoards]);
 
@@ -227,22 +227,24 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
 
           {/* Main Game Layout */}
           <div className="grid grid-cols-12 gap-4">
-            {/* Left Sidebar - Player Stats & Opponents */}
-            <div className="col-span-3 space-y-4">
-              <PlayerStats
-                player={player}
-                onBuyXP={buyXP}
-                canBuyXP={canBuyXP && isInteractive}
-              />
-              <OpponentList
-                opponents={opponents}
-                currentOpponent={currentOpponent}
-                localPlayer={player}
-              />
-            </div>
+            {/* Left Sidebar - Player Stats & Opponents - Hide during combat */}
+            {phase !== 'COMBAT' && (
+              <div className="col-span-3 space-y-4">
+                <PlayerStats
+                  player={player}
+                  onBuyXP={buyXP}
+                  canBuyXP={canBuyXP && isInteractive}
+                />
+                <OpponentList
+                  opponents={opponents}
+                  currentOpponent={currentOpponent}
+                  localPlayer={player}
+                />
+              </div>
+            )}
 
-            {/* Center - Boards */}
-            <div className="col-span-6 space-y-6">
+            {/* Center - Boards - Expand to full width during combat */}
+            <div className={`space-y-6 ${phase === 'COMBAT' ? 'col-span-12' : 'col-span-6'}`}>
               {/* Enemy Board (if in combat) */}
               <AnimatePresence>
                 {phase === 'COMBAT' && currentOpponent && (
@@ -257,25 +259,25 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
                       <div className="flex items-center justify-center gap-3 mb-2">
                         <button
                           onClick={() => setShowFinalCombatState(false)}
-                          disabled={timeRemaining > 5}
+                          disabled={timeRemaining > 7}
                           className={`px-4 py-2 rounded-lg font-semibold transition-all ${
                             !showFinalCombatState
                               ? 'bg-blue-600 text-white shadow-lg ring-2 ring-blue-400'
                               : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
-                          } ${timeRemaining > 5 ? 'cursor-not-allowed opacity-75' : 'cursor-pointer'}`}
+                          } ${timeRemaining > 7 ? 'cursor-not-allowed opacity-75' : 'cursor-pointer'}`}
                         >
-                          Combat Start {timeRemaining > 5 ? `(${Math.ceil(timeRemaining - 5)}s)` : ''}
+                          Combat Start {timeRemaining > 7 ? `(${Math.ceil(timeRemaining - 7)}s)` : ''}
                         </button>
                         <button
                           onClick={() => setShowFinalCombatState(true)}
-                          disabled={timeRemaining > 5}
+                          disabled={timeRemaining > 7}
                           className={`px-4 py-2 rounded-lg font-semibold transition-all ${
                             showFinalCombatState
                               ? 'bg-red-600 text-white shadow-lg ring-2 ring-red-400'
                               : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
-                          } ${timeRemaining > 5 ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
+                          } ${timeRemaining > 7 ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
                         >
-                          Combat End {timeRemaining <= 5 ? `(${timeRemaining}s)` : ''}
+                          Combat End {timeRemaining <= 7 ? `(${timeRemaining}s)` : ''}
                         </button>
                         {combatUnitsRemaining && (
                           <div className="ml-4 text-sm text-gray-400">
@@ -402,8 +404,9 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
               </AnimatePresence>
             </div>
 
-            {/* Right Sidebar - Combat Log / Info */}
-            <div className="col-span-3">
+            {/* Right Sidebar - Combat Log / Info - Hide during combat */}
+            {phase !== 'COMBAT' && (
+              <div className="col-span-3">
               <div className="bg-gray-800/50 backdrop-blur rounded-lg p-4 border border-gray-700 sticky top-4">
                 <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
                   <span>Combat Log</span>
@@ -475,7 +478,8 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
                   )}
                 </div>
               </div>
-            </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
