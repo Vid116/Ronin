@@ -1,16 +1,38 @@
 // Damage Calculation System
-import type { CombatUnit } from './types';
+import type { CombatUnit, CombatState } from './types';
+import { seededPercentageCheck } from './rng';
 
 /**
  * Calculate base damage from attacker to defender
  * Formula: max(1, attack - defense/2)
+ * Now includes dodge and crit with seeded RNG
  */
-export function calculateDamage(attacker: CombatUnit, defender: CombatUnit): number {
+export function calculateDamage(
+  attacker: CombatUnit,
+  defender: CombatUnit,
+  state: CombatState
+): number {
+  // Check for dodge first
+  if (defender.dodgeChance && defender.dodgeChance > 0) {
+    const dodged = seededPercentageCheck(state.randomSeed, state.randomIndex++, defender.dodgeChance);
+    if (dodged) {
+      return 0; // MISS!
+    }
+  }
+
   const attack = attacker.buffedAttack;
   const defense = Math.floor(defender.buffedHealth / 10); // Defense = 10% of max health
 
   // Base damage: attack minus half of defense
-  const baseDamage = Math.max(1, attack - Math.floor(defense / 2));
+  let baseDamage = Math.max(1, attack - Math.floor(defense / 2));
+
+  // Check for critical hit
+  if (attacker.critChance && attacker.critChance > 0) {
+    const crit = seededPercentageCheck(state.randomSeed, state.randomIndex++, attacker.critChance);
+    if (crit) {
+      baseDamage *= 2; // CRIT! Double damage
+    }
+  }
 
   return baseDamage;
 }

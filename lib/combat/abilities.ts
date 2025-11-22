@@ -185,6 +185,41 @@ export function processAbility(
           logBuff(state, unit, target, 'taunt', 1);
           break;
         }
+
+        case 'reposition': {
+          // Change unit's position mid-combat
+          if (effect.newPosition !== undefined) {
+            const board = target.side === 'player1' ? state.player1Board : state.player2Board;
+
+            // Remove from old position
+            board.delete(target.position);
+
+            // Update position
+            const oldPosition = target.position;
+            target.position = effect.newPosition;
+
+            // Add to new position (overwrites if occupied)
+            board.set(effect.newPosition, target);
+
+            effectDescription = `moved from ${oldPosition} to ${effect.newPosition}`;
+            logAbility(state, unit, 'Reposition', [target], effectDescription);
+          }
+          break;
+        }
+
+        case 'dodge': {
+          target.dodgeChance = (target.dodgeChance || 0) + effect.value;
+          effectDescription = `+${effect.value}% dodge`;
+          logBuff(state, unit, target, 'dodge', effect.value);
+          break;
+        }
+
+        case 'crit': {
+          target.critChance = (target.critChance || 0) + effect.value;
+          effectDescription = `+${effect.value}% crit`;
+          logBuff(state, unit, target, 'crit', effect.value);
+          break;
+        }
       }
 
       targetsHit.push(target);
@@ -204,14 +239,13 @@ function shouldTriggerAbility(unit: CombatUnit, trigger: AbilityTrigger): boolea
   const ability = unit.ability;
 
   // Map game.ts trigger names to combat trigger names
+  // Simplified to 4 basic triggers: start_of_combat, on_attack, on_death, passive
   const triggerMap: Record<string, AbilityTrigger[]> = {
     'onAttack': ['on_attack'],
-    'onHit': ['on_hit'],
     'onDeath': ['on_death'],
-    'onKill': ['on_kill'],
     'startCombat': ['start_of_combat'],
     'everyX': ['on_attack'], // Handle everyX as on_attack with counter
-    'conditional': ['on_attack', 'on_hit'], // Conditionals can trigger on various events
+    'conditional': ['on_attack'], // Simplify conditionals to on_attack
   };
 
   const validTriggers = triggerMap[ability.trigger] || [];
@@ -264,28 +298,10 @@ export function processStartOfCombatAbilities(state: CombatState): void {
 }
 
 /**
- * Process end of position abilities
- */
-export function processEndOfPositionAbilities(state: CombatState): void {
-  processTriggers('end_of_position', state);
-}
-
-/**
  * Process on-attack abilities
  */
 export function processOnAttackAbilities(state: CombatState, attacker: CombatUnit): void {
   processAbility(attacker, 'on_attack', state);
-}
-
-/**
- * Process on-hit abilities (when being attacked)
- */
-export function processOnHitAbilities(
-  state: CombatState,
-  defender: CombatUnit,
-  attacker: CombatUnit
-): void {
-  processAbility(defender, 'on_hit', state, attacker);
 }
 
 /**
@@ -297,15 +313,4 @@ export function processOnDeathAbilities(
   killer?: CombatUnit
 ): void {
   processAbility(deadUnit, 'on_death', state, killer);
-}
-
-/**
- * Process on-kill abilities
- */
-export function processOnKillAbilities(
-  state: CombatState,
-  killer: CombatUnit,
-  victim: CombatUnit
-): void {
-  processAbility(killer, 'on_kill', state, victim);
 }

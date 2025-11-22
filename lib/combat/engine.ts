@@ -6,11 +6,8 @@ import { calculateDamage, applyDamage, calculatePlayerDamage, isAlive } from './
 import { logAttack, logDeath } from './events';
 import {
   processStartOfCombatAbilities,
-  processEndOfPositionAbilities,
   processOnAttackAbilities,
-  processOnHitAbilities,
   processOnDeathAbilities,
-  processOnKillAbilities,
 } from './abilities';
 
 /**
@@ -106,11 +103,8 @@ function processUnitAttack(unit: CombatUnit, state: CombatState): void {
     return; // No valid targets
   }
 
-  // Calculate and apply damage
-  const damage = calculateDamage(unit, target);
-
-  // Process on-hit abilities (defender's response)
-  processOnHitAbilities(state, target, unit);
+  // Calculate and apply damage (with dodge/crit RNG)
+  const damage = calculateDamage(unit, target, state);
 
   // Apply damage
   const actualDamage = applyDamage(target, damage);
@@ -129,6 +123,7 @@ function processUnitAttack(unit: CombatUnit, state: CombatState): void {
 
 /**
  * Handle unit death
+ * Simplified: only process on-death abilities
  */
 function handleUnitDeath(
   deadUnit: CombatUnit,
@@ -140,11 +135,6 @@ function handleUnitDeath(
 
   // Process on-death abilities
   processOnDeathAbilities(state, deadUnit, killer);
-
-  // Process killer's on-kill abilities
-  if (killer && isAlive(killer)) {
-    processOnKillAbilities(state, killer, deadUnit);
-  }
 }
 
 /**
@@ -166,10 +156,7 @@ function processPosition(position: number, state: CombatState): void {
     processUnitAttack(p2Unit, state);
   }
 
-  // Process end-of-position effects
-  processEndOfPositionAbilities(state);
-
-  // Clean up dead units
+  // Clean up dead units after position
   cleanupDeadUnits(state);
 }
 
@@ -305,6 +292,8 @@ export function simulateCombat(
     events: state.events,
     survivingUnits,
     totalDamageDealt,
+    seed: state.randomSeed,
+    randomIndex: state.randomIndex,
   };
 }
 

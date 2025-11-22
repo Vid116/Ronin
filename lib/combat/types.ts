@@ -1,15 +1,12 @@
 // Combat Engine Types
 import type { Unit, Board, CombatEvent } from '@/types/game';
 
+// Simplified to 4 basic triggers for basic combat
 export type AbilityTrigger =
-  | 'on_attack'
-  | 'on_hit'
-  | 'on_death'
-  | 'on_kill'
-  | 'start_of_combat'
-  | 'end_of_position'
-  | 'on_damage_taken'
-  | 'on_heal';
+  | 'start_of_combat'  // Fire once at beginning
+  | 'on_attack'        // Fire when this unit attacks
+  | 'on_death'         // Fire when this unit dies
+  | 'passive';         // Always active (stat modifiers)
 
 export type TargetPriority =
   | 'taunt'
@@ -34,6 +31,8 @@ export interface CombatUnit extends Unit {
   attackCount?: number;
   damageDealt?: number;
   damageTaken?: number;
+  dodgeChance?: number; // Percentage (0-100)
+  critChance?: number; // Percentage (0-100)
 }
 
 export interface CombatState {
@@ -58,14 +57,18 @@ export interface CombatResult {
     player1: number;
     player2: number;
   };
+  // For ROFL verification
+  seed: number;
+  randomIndex: number; // Total RNG calls made
 }
 
 export interface AbilityEffect {
-  type: 'damage' | 'heal' | 'buff_attack' | 'buff_health' | 'shield' | 'taunt' | 'summon';
+  type: 'damage' | 'heal' | 'buff_attack' | 'buff_health' | 'shield' | 'taunt' | 'summon' | 'reposition' | 'dodge' | 'crit';
   value: number;
   target: TargetPriority;
   count?: number; // Number of targets
   duration?: number; // For buffs/debuffs
+  newPosition?: number; // For reposition effects
 }
 
 export interface ProcessedAbility {
