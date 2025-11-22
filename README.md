@@ -25,6 +25,7 @@ A fast-paced Web3 card-based autobattler built on the Ronin blockchain.
 
 - Node.js 20+
 - npm or yarn
+- WalletConnect Project ID ([Get one here](https://cloud.walletconnect.com))
 
 ### Installation
 
@@ -32,8 +33,22 @@ A fast-paced Web3 card-based autobattler built on the Ronin blockchain.
 # Install dependencies
 npm install
 
-# Run development server
-npm run dev
+# Create environment file
+cp .env.example .env.local
+
+# Add your WalletConnect Project ID to .env.local
+# NEXT_PUBLIC_WALLET_CONNECT_ID=your_project_id_here
+```
+
+### Running the App
+
+```bash
+# Run both client and server
+npm run dev:all
+
+# Or run separately:
+npm run dev      # Frontend only (http://localhost:3000)
+npm run server   # Backend only (http://localhost:3001)
 ```
 
 Open [http://localhost:3000](http://localhost:3000) to see the app.
