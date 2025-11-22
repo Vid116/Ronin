@@ -6,17 +6,14 @@
 // Export all constants
 export * from './constants';
 
-// Export all abilities
-export * from './abilities';
-
 // Export all units
 export * from './units';
 
 // Export all items
 export * from './items';
 
-// Export all synergies
-export * from './synergies';
+// Note: Not re-exporting abilities and synergies here due to naming conflicts
+// Import them directly from './abilities' or './synergies' if needed
 
 // Re-export commonly used collections for convenience
 import {

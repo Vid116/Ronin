@@ -2,31 +2,38 @@ import { useWriteContract, useWaitForTransactionReceipt, useReadContract } from 
 import { parseEther } from 'viem';
 import toast from 'react-hot-toast';
 
-// Placeholder contract ABI and address
-// These will be replaced with actual deployed contract details
-const GAME_CONTRACT_ADDRESS = '0x0000000000000000000000000000000000000000' as `0x${string}`;
+// Contract address from environment
+const GAME_CONTRACT_ADDRESS = (process.env.NEXT_PUBLIC_RONIN_RUMBLE_MAIN_ADDRESS || '0x0B46aF2F581c163ff7b1dD6d2aFedDa86066ABDA') as `0x${string}`;
 
+// Minimal ABI for the functions we need
 const GAME_CONTRACT_ABI = [
   {
-    name: 'joinQueue',
-    type: 'function',
+    inputs: [{ internalType: 'uint256', name: '_matchId', type: 'uint256' }],
+    name: 'joinMatch',
+    outputs: [],
     stateMutability: 'payable',
-    inputs: [{ name: 'entryFee', type: 'uint256' }],
-    outputs: [],
+    type: 'function',
   },
   {
-    name: 'claimRewards',
-    type: 'function',
+    inputs: [{ internalType: 'uint256', name: '_entryFee', type: 'uint256' }],
+    name: 'createMatch',
+    outputs: [{ internalType: 'uint256', name: '', type: 'uint256' }],
     stateMutability: 'nonpayable',
-    inputs: [{ name: 'matchId', type: 'bytes32' }],
-    outputs: [],
+    type: 'function',
   },
   {
-    name: 'getPlayerMatch',
+    inputs: [],
+    name: 'claimRewards',
+    outputs: [],
+    stateMutability: 'nonpayable',
     type: 'function',
+  },
+  {
+    inputs: [{ internalType: 'address', name: '_player', type: 'address' }],
+    name: 'getPlayerBalance',
+    outputs: [{ internalType: 'uint256', name: '', type: 'uint256' }],
     stateMutability: 'view',
-    inputs: [{ name: 'player', type: 'address' }],
-    outputs: [{ name: 'matchId', type: 'bytes32' }],
+    type: 'function',
   },
 ] as const;
 
@@ -38,39 +45,60 @@ export function useContract() {
       hash,
     });
 
-  const joinQueue = async (entryFee: number) => {
+  const joinMatch = async (matchId: number, entryFee: number) => {
     try {
       await writeContract({
         address: GAME_CONTRACT_ADDRESS,
         abi: GAME_CONTRACT_ABI,
-        functionName: 'joinQueue',
-        args: [BigInt(entryFee)],
+        functionName: 'joinMatch',
+        args: [BigInt(matchId)],
         value: parseEther(entryFee.toString()),
       });
-      toast.success('Joining queue...');
+      toast.success('Joining match on blockchain...');
+      return hash;
     } catch (error) {
-      toast.error('Failed to join queue');
+      toast.error('Failed to join match');
       console.error(error);
+      throw error;
     }
   };
 
-  const claimRewards = async (matchId: string) => {
+  const createMatch = async (entryFee: number) => {
+    try {
+      await writeContract({
+        address: GAME_CONTRACT_ADDRESS,
+        abi: GAME_CONTRACT_ABI,
+        functionName: 'createMatch',
+        args: [parseEther(entryFee.toString())],
+      });
+      toast.success('Creating match on blockchain...');
+      return hash;
+    } catch (error) {
+      toast.error('Failed to create match');
+      console.error(error);
+      throw error;
+    }
+  };
+
+  const claimRewards = async () => {
     try {
       await writeContract({
         address: GAME_CONTRACT_ADDRESS,
         abi: GAME_CONTRACT_ABI,
         functionName: 'claimRewards',
-        args: [matchId as `0x${string}`],
+        args: [],
       });
       toast.success('Claiming rewards...');
     } catch (error) {
       toast.error('Failed to claim rewards');
       console.error(error);
+      throw error;
     }
   };
 
   return {
-    joinQueue,
+    joinMatch,
+    createMatch,
     claimRewards,
     isWriting,
     isConfirming,
@@ -79,11 +107,11 @@ export function useContract() {
   };
 }
 
-export function usePlayerMatch(address?: `0x${string}`) {
-  const { data: matchId, isLoading } = useReadContract({
+export function usePlayerBalance(address?: `0x${string}`) {
+  const { data: balance, isLoading } = useReadContract({
     address: GAME_CONTRACT_ADDRESS,
     abi: GAME_CONTRACT_ABI,
-    functionName: 'getPlayerMatch',
+    functionName: 'getPlayerBalance',
     args: address ? [address] : undefined,
     query: {
       enabled: !!address,
@@ -91,7 +119,7 @@ export function usePlayerMatch(address?: `0x${string}`) {
   });
 
   return {
-    matchId,
+    balance: balance as bigint | undefined,
     isLoading,
   };
 }

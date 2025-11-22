@@ -314,7 +314,7 @@ export const MAGE_SYNERGY: Ability = {
   effect: 'REDUCE_ABILITY_COST_1',
 };
 
-export const ASSASSIN_SYNERGY: Ability = {
+export const ASSASSIN_SYNERGY_ABILITY: Ability = {
   name: 'Assassin Synergy',
   description: 'Assassins gain 40% crit chance',
   trigger: 'conditional',
@@ -393,7 +393,7 @@ export const ALL_ABILITIES = {
   RANGER_SYNERGY,
   TANK_SYNERGY,
   MAGE_SYNERGY,
-  ASSASSIN_SYNERGY,
+  ASSASSIN_SYNERGY: ASSASSIN_SYNERGY_ABILITY,
   SAMURAI_SYNERGY,
   PIXELS_SYNERGY,
   AXIE_SYNERGY,

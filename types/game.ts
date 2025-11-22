@@ -56,6 +56,19 @@ export interface Player {
   placement?: number;
 }
 
+// Player State (for game logic, includes board and bench)
+export interface PlayerState extends Player {
+  board: (Unit | null)[];
+  bench: (Unit | null)[];
+  shop: Unit[];
+}
+
+// Card Type Alias
+export type Card = Unit;
+
+// Shop Card Type (same as Unit for now)
+export type ShopCard = Unit;
+
 // Shop Types
 export interface Shop {
   cards: Unit[];
@@ -119,16 +132,17 @@ export interface OpponentState {
 // WebSocket Event Types
 export type ServerEvent =
   | { type: 'MATCH_FOUND'; data: Match }
-  | { type: 'ROUND_START'; data: { round: number; phase: GamePhase } }
+  | { type: 'ROUND_START'; data: { round: number; phase: GamePhase; timeRemaining: number } }
   | { type: 'SHOP_UPDATE'; data: Shop }
-  | { type: 'COMBAT_START'; data: { opponent: OpponentState } }
+  | { type: 'COMBAT_START'; data: { opponent: OpponentState; timeRemaining: number } }
   | { type: 'COMBAT_EVENT'; data: CombatEvent }
-  | { type: 'ROUND_END'; data: { damage: number; gold: number } }
+  | { type: 'ROUND_END'; data: { damage: number; player: Player } }
   | { type: 'PLAYER_ELIMINATED'; data: { playerId: string } }
   | { type: 'MATCH_END'; data: { placements: { playerId: string; placement: number }[] } };
 
 export type ClientEvent =
-  | { type: 'JOIN_QUEUE'; data: { entryFee: number } }
+  | { type: 'JOIN_QUEUE'; data: { entryFee: number; transactionHash?: string } }
+  | { type: 'JOIN_BOT_MATCH'; data: { entryFee: number; transactionHash?: string } }
   | { type: 'BUY_CARD'; data: { cardIndex: number } }
   | { type: 'SELL_CARD'; data: { unitId: string } }
   | { type: 'PLACE_CARD'; data: { unitId: string; position: number } }

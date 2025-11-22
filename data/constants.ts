@@ -141,9 +141,9 @@ export const TIMING = {
 // Entry Fees (in RON)
 export const ENTRY_FEES = {
   FREE: 0,
-  LOW: 2,
-  MEDIUM: 10,
-  HIGH: 50,
+  LOW: 0.001,
+  MEDIUM: 0.005,
+  HIGH: 0.01,
 } as const;
 
 // Prize Distribution (percentages)

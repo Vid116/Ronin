@@ -3,37 +3,23 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { GamePhase } from '@/types/game';
-import { useGameStore } from '@/store/gameStore';
+import { PHASE_DURATIONS_SECONDS } from '@/constants/gameConfig';
 
 interface TimerProps {
   timeRemaining: number;
   phase: GamePhase;
 }
 
-export function Timer({ timeRemaining: initialTime, phase }: TimerProps) {
-  const [timeRemaining, setTimeRemaining] = useState(initialTime);
+export function Timer({ timeRemaining, phase }: TimerProps) {
   const [isWarning, setIsWarning] = useState(false);
-  const setTimeRemainingStore = useGameStore((state) => state.setTimeRemaining);
 
-  // Sync with initial time from props
+  // Debug: Log when Timer receives new props
   useEffect(() => {
-    setTimeRemaining(initialTime);
-  }, [initialTime, phase]); // Reset when phase changes
-
-  // Countdown timer
-  useEffect(() => {
-    if (timeRemaining <= 0) return;
-
-    const interval = setInterval(() => {
-      setTimeRemaining((prev) => {
-        const newTime = Math.max(0, prev - 1);
-        setTimeRemainingStore(newTime);
-        return newTime;
-      });
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [timeRemaining, setTimeRemainingStore]);
+    console.log('⏱️ [TIMER COMPONENT] Props updated:', {
+      timeRemaining,
+      phase
+    });
+  }, [timeRemaining, phase]);
 
   // Warning state
   useEffect(() => {
@@ -48,7 +34,7 @@ export function Timer({ timeRemaining: initialTime, phase }: TimerProps) {
       bg: 'bg-blue-900/30',
       borderColor: 'border-blue-500',
       progressColor: 'bg-blue-500',
-      maxTime: 20,
+      maxTime: PHASE_DURATIONS_SECONDS.PLANNING,
     },
     COMBAT: {
       label: 'Combat Phase',
@@ -57,7 +43,7 @@ export function Timer({ timeRemaining: initialTime, phase }: TimerProps) {
       bg: 'bg-red-900/30',
       borderColor: 'border-red-500',
       progressColor: 'bg-red-500',
-      maxTime: 10,
+      maxTime: PHASE_DURATIONS_SECONDS.COMBAT,
     },
     TRANSITION: {
       label: 'Transition',
@@ -66,7 +52,7 @@ export function Timer({ timeRemaining: initialTime, phase }: TimerProps) {
       bg: 'bg-yellow-900/30',
       borderColor: 'border-yellow-500',
       progressColor: 'bg-yellow-500',
-      maxTime: 2,
+      maxTime: PHASE_DURATIONS_SECONDS.TRANSITION,
     },
   };
 

@@ -101,37 +101,68 @@ export function useSocket() {
   }, []);
 
   const handleServerEvent = useCallback((event: ServerEvent) => {
-    console.log('Server event:', event.type, event.data);
+    console.log('🔵 Server event received:', event.type, event.data);
 
     switch (event.type) {
       case 'MATCH_FOUND':
+        console.log('📊 [MATCH_FOUND] Setting initial state:', {
+          round: event.data.currentRound || 1,
+          phase: 'PLANNING',
+          timeRemaining: 30
+        });
         setMatchId(event.data.id);
+        // Initialize game state with match data
+        const myPlayer = event.data.players.find(p => p.id === socketRef.current?.id);
         updateFromServer({
           opponents: event.data.players.filter(p => p.id !== socketRef.current?.id),
-          player: event.data.players.find(p => p.id === socketRef.current?.id) || useGameStore.getState().player,
+          player: myPlayer || useGameStore.getState().player,
+          round: event.data.currentRound || 1,
+          phase: 'PLANNING',
+          timeRemaining: 30, // Set initial timer for planning phase
         });
         toast.success('Match found! Get ready to battle!', { duration: 3000 });
         break;
 
       case 'ROUND_START':
+        console.log('📊 [ROUND_START] Updating state:', {
+          round: event.data.round,
+          phase: event.data.phase,
+          timeRemaining: Math.ceil(event.data.timeRemaining / 1000)
+        });
+        console.log('📊 [ROUND_START] Calling setRound with:', event.data.round);
         setRound(event.data.round);
+        console.log('📊 [ROUND_START] Calling setPhase with:', event.data.phase);
         setPhase(event.data.phase);
-        setTimeRemaining(20); // Reset timer for planning phase
-        toast(`Round ${event.data.round} - Planning Phase`, { icon: '⚡' });
+        // Use server-provided timeRemaining (converted from ms to seconds)
+        console.log('📊 [ROUND_START] Calling setTimeRemaining with:', Math.ceil(event.data.timeRemaining / 1000));
+        setTimeRemaining(Math.ceil(event.data.timeRemaining / 1000));
+
+        const phaseLabel = event.data.phase === 'PLANNING' ? 'Planning Phase' :
+                          event.data.phase === 'COMBAT' ? 'Combat Phase' : 'Transition';
+        toast(`Round ${event.data.round} - ${phaseLabel}`, { icon: '⚡' });
         break;
 
       case 'SHOP_UPDATE':
+        console.log('📊 [SHOP_UPDATE] Updating shop');
         updateShop(event.data);
         break;
 
       case 'COMBAT_START':
+        console.log('📊 [COMBAT_START] Updating state:', {
+          phase: 'COMBAT',
+          timeRemaining: Math.ceil(event.data.timeRemaining / 1000)
+        });
+        console.log('📊 [COMBAT_START] Calling setPhase with: COMBAT');
         setPhase('COMBAT');
-        setTimeRemaining(10); // Combat phase duration
+        // Use server-provided timeRemaining (converted from ms to seconds)
+        console.log('📊 [COMBAT_START] Calling setTimeRemaining with:', Math.ceil(event.data.timeRemaining / 1000));
+        setTimeRemaining(Math.ceil(event.data.timeRemaining / 1000));
         updateFromServer({ currentOpponent: event.data.opponent.player });
         toast('Combat starting!', { icon: '⚔️' });
         break;
 
       case 'COMBAT_EVENT':
+        console.log('📊 [COMBAT_EVENT] Adding combat event:', event.data.type);
         addCombatEvent(event.data);
 
         // Show toast for significant events
@@ -141,26 +172,22 @@ export function useSocket() {
         break;
 
       case 'ROUND_END':
+        console.log('📊 [ROUND_END] Updating state:', {
+          phase: 'TRANSITION',
+          damage: event.data.damage
+        });
+        console.log('📊 [ROUND_END] Calling setPhase with: TRANSITION');
         setPhase('TRANSITION');
 
-        // Update player state
-        const currentPlayer = useGameStore.getState().player;
+        // Use server's authoritative player state instead of calculating
         updateFromServer({
-          player: {
-            ...currentPlayer,
-            gold: currentPlayer.gold + event.data.gold,
-            health: currentPlayer.health - event.data.damage,
-          },
+          player: event.data.player,
         });
 
         if (event.data.damage > 0) {
           toast.error(`You took ${event.data.damage} damage!`, { duration: 3000 });
         } else {
           toast.success('Victory! No damage taken', { duration: 3000 });
-        }
-
-        if (event.data.gold > 0) {
-          toast(`+${event.data.gold} gold`, { icon: '💰', duration: 2000 });
         }
         break;
 
@@ -195,52 +222,54 @@ export function useSocket() {
     }
   }, [setMatchId, setPhase, setRound, setTimeRemaining, updateShop, addCombatEvent, updateFromServer, rollbackOptimisticUpdate]);
 
-  const emit = useCallback((event: ClientEvent) => {
+  const emit = useCallback((eventType: string, data?: any) => {
     if (!socketRef.current?.connected) {
+      console.error('❌ Cannot emit - not connected to server');
       toast.error('Not connected to server');
       return false;
     }
 
-    console.log('Emitting event:', event.type);
+    const event: ClientEvent = { type: eventType as any, data };
+    console.log('🟢 Emitting event:', event.type, event.data);
     socketRef.current.emit('client_event', event);
     return true;
   }, []);
 
   // Specific event emitters for better type safety and ease of use
-  const joinQueue = useCallback((entryFee: number) => {
-    return emit({ type: 'JOIN_QUEUE', data: { entryFee } });
+  const joinQueue = useCallback((entryFee: number, transactionHash?: string) => {
+    return emit('JOIN_QUEUE', { entryFee, transactionHash });
   }, [emit]);
 
   const buyCard = useCallback((cardIndex: number) => {
-    return emit({ type: 'BUY_CARD', data: { cardIndex } });
+    return emit('BUY_CARD', { cardIndex });
   }, [emit]);
 
   const sellCard = useCallback((unitId: string) => {
-    return emit({ type: 'SELL_CARD', data: { unitId } });
+    return emit('SELL_CARD', { unitId });
   }, [emit]);
 
   const placeCard = useCallback((unitId: string, position: number) => {
-    return emit({ type: 'PLACE_CARD', data: { unitId, position } });
+    return emit('PLACE_CARD', { unitId, position });
   }, [emit]);
 
   const rerollShop = useCallback(() => {
-    return emit({ type: 'REROLL_SHOP' });
+    return emit('REROLL_SHOP');
   }, [emit]);
 
   const buyXP = useCallback(() => {
-    return emit({ type: 'BUY_XP' });
+    return emit('BUY_XP');
   }, [emit]);
 
   const equipItem = useCallback((itemId: string, unitId: string) => {
-    return emit({ type: 'EQUIP_ITEM', data: { itemId, unitId } });
+    return emit('EQUIP_ITEM', { itemId, unitId });
   }, [emit]);
 
   const ready = useCallback(() => {
-    return emit({ type: 'READY' });
+    return emit('READY');
   }, [emit]);
 
-  const joinBotMatch = useCallback((entryFee: number) => {
-    return emit({ type: 'JOIN_BOT_MATCH', data: { entryFee } });
+  const joinBotMatch = useCallback((entryFee: number, transactionHash?: string) => {
+    return emit('JOIN_BOT_MATCH', { entryFee, transactionHash });
   }, [emit]);
 
   return {

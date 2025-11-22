@@ -130,13 +130,17 @@ export class GameRoom {
    * Handle phase changes
    */
   private handlePhaseChange(phase: GamePhase, round: number): void {
-    console.log(`Match ${this.matchId}: Round ${round}, Phase ${phase}`);
+    console.log(`\n🎮 Match ${this.matchId}: Round ${round}, Phase ${phase}`);
+    console.log(`👥 Active players: ${this.getActivePlayerIds().length}`);
 
     if (phase === 'PLANNING') {
+      console.log(`➡️ Handling PLANNING phase`);
       this.handlePlanningPhase(round);
     } else if (phase === 'COMBAT') {
+      console.log(`➡️ Handling COMBAT phase`);
       this.handleCombatPhase(round);
     } else if (phase === 'TRANSITION') {
+      console.log(`➡️ Handling TRANSITION phase`);
       this.handleTransitionPhase(round);
     }
   }
@@ -160,8 +164,9 @@ export class GameRoom {
       this.stateSync.syncShopUpdate(playerId, shop);
     });
 
-    // Broadcast round start
-    this.stateSync.syncRoundStart(this.getActivePlayerIds(), round, 'PLANNING');
+    // Broadcast round start with timer
+    const timeRemaining = this.roundManager.getTimeRemaining();
+    this.stateSync.syncRoundStart(this.getActivePlayerIds(), round, 'PLANNING', timeRemaining);
 
     // Reset ready status
     this.playerReadyStatus.forEach((_, playerId) => {
@@ -242,11 +247,15 @@ export class GameRoom {
    * Handle combat phase
    */
   private handleCombatPhase(round: number): void {
+    console.log(`⚔️ Starting combat phase for round ${round}`);
+
     // Pair opponents
     const activePlayerIds = this.getActivePlayerIds();
     const pairings = RoundManager.pairOpponents(activePlayerIds, round);
 
-    // Run combat for each pairing
+    console.log(`📡 Running combat for ${activePlayerIds.length} players`);
+
+    // Run combat for each pairing (COMBAT_START event sent in runCombat)
     pairings.forEach((opponentId, playerId) => {
       this.runCombat(playerId, opponentId);
     });
@@ -266,13 +275,14 @@ export class GameRoom {
       return;
     }
 
-    // Notify combat start
+    // Notify combat start with timeRemaining
     const opponentState = this.stateSync.createOpponentState(
       opponent,
       opponentBoard,
       this.getAllUnitsFromBoard(opponentBoard)
     );
-    this.stateSync.syncCombatStart(playerId, opponentState);
+    const timeRemaining = this.roundManager.getTimeRemaining();
+    this.stateSync.syncCombatStart(playerId, opponentState, timeRemaining);
 
     // Simulate combat
     const result = this.combatSimulator.simulateCombat(playerBoard, opponentBoard);
@@ -300,8 +310,8 @@ export class GameRoom {
       player.winStreak = streaks.winStreak;
       player.loseStreak = streaks.loseStreak;
 
-      // Notify player of damage
-      this.stateSync.syncRoundEnd(playerId, result.damageDealt, 0);
+      // Notify player of damage with updated player state
+      this.stateSync.syncRoundEnd(playerId, result.damageDealt, player);
 
       // Check for elimination
       if (player.health <= 0) {
@@ -313,12 +323,12 @@ export class GameRoom {
       player.winStreak = streaks.winStreak;
       player.loseStreak = streaks.loseStreak;
 
-      // No damage
-      this.stateSync.syncRoundEnd(playerId, 0, 0);
+      // No damage - send updated player state
+      this.stateSync.syncRoundEnd(playerId, 0, player);
     } else {
       // Draw - minimal damage
       player.health -= 1;
-      this.stateSync.syncRoundEnd(playerId, 1, 0);
+      this.stateSync.syncRoundEnd(playerId, 1, player);
     }
   }
 
@@ -326,9 +336,14 @@ export class GameRoom {
    * Handle transition phase
    */
   private handleTransitionPhase(round: number): void {
-    // Check for match end
-    const activePlayers = this.getActivePlayerIds();
+    console.log(`Starting transition phase for round ${round}`);
 
+    // Broadcast phase change to all players with timeRemaining
+    const activePlayers = this.getActivePlayerIds();
+    const timeRemaining = this.roundManager.getTimeRemaining();
+    this.stateSync.syncPhaseChange(activePlayers, 'TRANSITION', round, timeRemaining);
+
+    // Check for match end
     if (activePlayers.length <= 1) {
       this.endMatch();
     } else {
@@ -777,6 +792,60 @@ export class GameRoom {
    */
   isCompleted(): boolean {
     return this.isMatchComplete;
+  }
+
+  /**
+   * Sync full game state to a reconnecting player
+   */
+  syncPlayerState(socketId: string): void {
+    const player = this.players.get(socketId);
+    if (!player) {
+      console.warn(`Cannot sync state for unknown player: ${socketId}`);
+      return;
+    }
+
+    console.log(`Syncing full state to ${socketId}`);
+
+    // Build complete game state for this player
+    const playerState: PlayerGameState = {
+      player,
+      board: this.playerBoards.get(socketId) || { top: [null, null, null, null], bottom: [null, null, null, null] },
+      bench: this.playerBenches.get(socketId) || [],
+      shop: this.playerShops.get(socketId) || { cards: [], rerollCost: REROLL_COST, freeRerolls: 0 },
+      items: [], // TODO: Add items when implemented
+    };
+
+    // Send MATCH_FOUND event to establish they're in this match
+    this.io.to(socketId).emit('server_event', {
+      type: 'MATCH_FOUND',
+      data: {
+        id: this.matchId,
+        players: Array.from(this.players.values()),
+        entryFee: 0, // TODO: Track entry fee
+        prizePool: 0,
+        status: 'IN_PROGRESS',
+        currentRound: this.roundManager.getCurrentRound(),
+      },
+    });
+
+    // Sync current round and phase
+    this.stateSync.syncRoundStart(
+      [socketId],
+      this.roundManager.getCurrentRound(),
+      this.roundManager.getCurrentPhase(),
+      this.roundManager.getTimeRemaining()
+    );
+
+    // Sync player's current state
+    this.stateSync.syncPlayerState(socketId, playerState);
+
+    // Sync shop
+    const shop = this.playerShops.get(socketId);
+    if (shop) {
+      this.stateSync.syncShop(socketId, shop);
+    }
+
+    console.log(`✅ State sync complete for ${socketId}`);
   }
 
   /**

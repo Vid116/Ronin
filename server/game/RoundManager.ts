@@ -1,9 +1,10 @@
 import { GamePhase } from '../../types/game';
+import { PHASE_DURATIONS } from '../../constants/gameConfig';
 
 // Phase durations in milliseconds
-const PLANNING_PHASE_DURATION = 30000; // 30 seconds
-const COMBAT_PHASE_DURATION = 15000;   // 15 seconds
-const TRANSITION_PHASE_DURATION = 5000; // 5 seconds
+const PLANNING_PHASE_DURATION = PHASE_DURATIONS.PLANNING;
+const COMBAT_PHASE_DURATION = PHASE_DURATIONS.COMBAT;
+const TRANSITION_PHASE_DURATION = PHASE_DURATIONS.TRANSITION;
 
 export interface RoundState {
   round: number;
@@ -35,15 +36,20 @@ export class RoundManager {
     this.currentPhase = 'PLANNING';
     this.phaseStartTime = Date.now();
 
-    console.log(`Round ${this.currentRound}: Planning phase started (${PLANNING_PHASE_DURATION / 1000}s)`);
+    console.log(`🟢 Round ${this.currentRound}: Planning phase started (${PLANNING_PHASE_DURATION / 1000}s)`);
+    console.log(`⏰ Combat phase scheduled for ${new Date(Date.now() + PLANNING_PHASE_DURATION).toLocaleTimeString()}`);
 
     // Notify listeners
     if (this.onPhaseChange) {
+      console.log(`📢 Calling onPhaseChange for PLANNING phase`);
       this.onPhaseChange('PLANNING', this.currentRound);
+    } else {
+      console.warn('⚠️ No onPhaseChange listener set!');
     }
 
     // Schedule combat phase
     this.phaseTimer = setTimeout(() => {
+      console.log(`⏰ Timer fired! Transitioning to combat phase...`);
       this.startCombatPhase();
     }, PLANNING_PHASE_DURATION);
   }
@@ -55,15 +61,19 @@ export class RoundManager {
     this.currentPhase = 'COMBAT';
     this.phaseStartTime = Date.now();
 
-    console.log(`Round ${this.currentRound}: Combat phase started (${COMBAT_PHASE_DURATION / 1000}s)`);
+    console.log(`⚔️ Round ${this.currentRound}: Combat phase started (${COMBAT_PHASE_DURATION / 1000}s)`);
 
     // Notify listeners
     if (this.onPhaseChange) {
+      console.log(`📢 Calling onPhaseChange for COMBAT phase`);
       this.onPhaseChange('COMBAT', this.currentRound);
+    } else {
+      console.warn('⚠️ No onPhaseChange listener set!');
     }
 
     // Schedule transition phase
     this.phaseTimer = setTimeout(() => {
+      console.log(`⏰ Timer fired! Transitioning to transition phase...`);
       this.startTransitionPhase();
     }, COMBAT_PHASE_DURATION);
   }

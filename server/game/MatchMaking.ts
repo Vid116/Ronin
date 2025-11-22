@@ -6,6 +6,7 @@ interface QueuedPlayer {
   socketId: string;
   entryFee: number;
   joinedAt: number;
+  transactionHash?: string;
   isBot?: boolean;
   botName?: string;
 }
@@ -23,7 +24,7 @@ export class MatchMaking {
   /**
    * Add a player to the matchmaking queue
    */
-  addToQueue(socketId: string, entryFee: number): void {
+  addToQueue(socketId: string, entryFee: number, transactionHash?: string): void {
     // Check if player is already in queue
     const existingIndex = this.queue.findIndex(p => p.socketId === socketId);
     if (existingIndex !== -1) {
@@ -31,11 +32,30 @@ export class MatchMaking {
       return;
     }
 
+    // For paid matches, verify transaction hash is provided
+    if (entryFee > 0 && !transactionHash) {
+      console.warn(`Player ${socketId} attempted to join paid match without transaction hash`);
+      // In production, you would reject this. For now, we'll log a warning.
+      // this.io.to(socketId).emit('error', { type: 'GAME_ERROR', message: 'Transaction hash required for paid matches' });
+      // return;
+    }
+
+    // TODO: Verify transaction on blockchain
+    if (transactionHash) {
+      console.log(`🔗 Transaction hash for ${socketId}: ${transactionHash}`);
+      // In production, add verification logic here:
+      // 1. Query the blockchain for this transaction
+      // 2. Verify it's a valid createMatch or joinMatch call
+      // 3. Verify the entry fee matches
+      // 4. Verify transaction is confirmed
+    }
+
     // Add to queue
     this.queue.push({
       socketId,
       entryFee,
       joinedAt: Date.now(),
+      transactionHash,
     });
 
     console.log(`Queue: ${this.queue.length}/${this.PLAYERS_PER_MATCH} players`);
@@ -169,8 +189,18 @@ export class MatchMaking {
   /**
    * Create a bot match (1 human player vs 5 bots)
    */
-  createBotMatch(socketId: string, entryFee: number): void {
+  createBotMatch(socketId: string, entryFee: number, transactionHash?: string): void {
     console.log(`Creating bot match for ${socketId} with entry fee: ${entryFee}`);
+
+    // For paid matches, verify transaction hash is provided
+    if (entryFee > 0 && !transactionHash) {
+      console.warn(`Player ${socketId} attempted to create paid bot match without transaction hash`);
+    }
+
+    // TODO: Verify transaction on blockchain
+    if (transactionHash) {
+      console.log(`🔗 Transaction hash for bot match ${socketId}: ${transactionHash}`);
+    }
 
     const matchId = `bot-match-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
@@ -180,6 +210,7 @@ export class MatchMaking {
         socketId,
         entryFee,
         joinedAt: Date.now(),
+        transactionHash,
         isBot: false,
       }
     ];

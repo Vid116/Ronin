@@ -30,7 +30,7 @@ export function Card({ unit, isDraggable = false, onClick, showCost = true, comp
 
   return (
     <motion.div
-      ref={isDraggable ? drag : null}
+      ref={isDraggable ? (drag as any) : null}
       whileHover={!isDragging ? { scale: 1.05 } : {}}
       whileTap={!isDragging ? { scale: 0.95 } : {}}
       onClick={onClick}

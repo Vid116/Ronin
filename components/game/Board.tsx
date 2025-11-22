@@ -43,7 +43,7 @@ export function Board({
 
     return (
       <motion.div
-        ref={isInteractive ? drop : null}
+        ref={isInteractive ? (drop as any) : null}
         key={`${row}-${position}`}
         className={`
           relative rounded-lg border-2 transition-all

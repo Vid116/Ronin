@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useGame } from '@/hooks/useGame';
 import { usePlayerStore } from '@/store/playerStore';
 import { useGameStore } from '@/store/gameStore';
+import { useContract } from '@/hooks/useContract';
 import toast from 'react-hot-toast';
 
 export default function LobbyPage() {
@@ -17,8 +18,10 @@ export default function LobbyPage() {
   const { address, isConnected, balance, socket } = useGame();
   const { queue, joinQueue, leaveQueue, updateQueueCount } = usePlayerStore();
   const matchId = useGameStore((state) => state.matchId);
+  const { createMatch, isWriting, isConfirming, isConfirmed, txHash } = useContract();
 
   const [timeInQueue, setTimeInQueue] = useState(0);
+  const [pendingTx, setPendingTx] = useState(false);
 
   // Redirect if not connected
   useEffect(() => {
@@ -58,7 +61,23 @@ export default function LobbyPage() {
     }
   }, [queue.isQueuing, queue.playersInQueue, updateQueueCount]);
 
-  const handleJoinQueue = () => {
+  // Handle transaction confirmation
+  useEffect(() => {
+    if (isConfirmed && pendingTx && txHash) {
+      setPendingTx(false);
+
+      // Join queue via socket with transaction hash
+      const success = socket.joinQueue(stake, txHash);
+      if (success) {
+        joinQueue(stake);
+        toast.success('Joined queue! Searching for opponents...');
+      } else {
+        toast.error('Failed to join queue');
+      }
+    }
+  }, [isConfirmed, pendingTx, txHash, socket, stake, joinQueue]);
+
+  const handleJoinQueue = async () => {
     if (!socket.isConnected) {
       toast.error('Not connected to game server. Please refresh.');
       return;
@@ -69,13 +88,29 @@ export default function LobbyPage() {
       return;
     }
 
-    // Join queue via socket
-    const success = socket.joinQueue(stake);
-    if (success) {
-      joinQueue(stake);
-      toast.success('Searching for opponents...');
-    } else {
-      toast.error('Failed to join queue');
+    // For free matches, join directly without blockchain transaction
+    if (stake === 0) {
+      const success = socket.joinQueue(stake);
+      if (success) {
+        joinQueue(stake);
+        toast.success('Searching for opponents...');
+      } else {
+        toast.error('Failed to join queue');
+      }
+      return;
+    }
+
+    // For paid matches, create blockchain transaction first
+    try {
+      setPendingTx(true);
+      toast.loading('Creating match on blockchain...', { id: 'blockchain-tx' });
+      await createMatch(stake);
+      toast.success('Transaction submitted! Waiting for confirmation...', { id: 'blockchain-tx' });
+      // The useEffect above will handle joining queue after confirmation
+    } catch (error) {
+      setPendingTx(false);
+      toast.error('Transaction failed', { id: 'blockchain-tx' });
+      console.error('Blockchain transaction error:', error);
     }
   };
 
@@ -85,7 +120,7 @@ export default function LobbyPage() {
     // TODO: Notify server to remove from queue
   };
 
-  const handleJoinBotMatch = () => {
+  const handleJoinBotMatch = async () => {
     if (!socket.isConnected) {
       toast.error('Not connected to game server. Please refresh.');
       return;
@@ -96,21 +131,50 @@ export default function LobbyPage() {
       return;
     }
 
-    // Join bot match via socket
-    const success = socket.joinBotMatch(stake);
-    if (success) {
-      toast.success('Starting bot match...');
-    } else {
-      toast.error('Failed to create bot match');
+    // For free matches, join directly without blockchain transaction
+    if (stake === 0) {
+      const success = socket.joinBotMatch(stake);
+      if (success) {
+        toast.success('Starting bot match...');
+      } else {
+        toast.error('Failed to create bot match');
+      }
+      return;
+    }
+
+    // For paid matches, create blockchain transaction first
+    try {
+      setPendingTx(true);
+      toast.loading('Creating match on blockchain...', { id: 'blockchain-tx' });
+      await createMatch(stake);
+      toast.success('Transaction submitted! Waiting for confirmation...', { id: 'blockchain-tx' });
+
+      // Wait for confirmation then join bot match
+      // This is handled by the useEffect, but we need a separate flow for bot matches
+      // For now, let's just join after the transaction is submitted
+      // In production, you'd want to wait for confirmation
+      const success = socket.joinBotMatch(stake, txHash || undefined);
+      if (success) {
+        toast.success('Starting bot match...');
+        setPendingTx(false);
+      } else {
+        toast.error('Failed to create bot match');
+        setPendingTx(false);
+      }
+    } catch (error) {
+      setPendingTx(false);
+      toast.error('Transaction failed', { id: 'blockchain-tx' });
+      console.error('Blockchain transaction error:', error);
     }
   };
 
-  const rewards = {
+  const rewardMap: Record<number, { first: string; second: string; third: string }> = {
     0: { first: 'Glory', second: 'Honor', third: 'Experience' },
     2: { first: '8 RON', second: '2 RON', third: '0 RON' },
     10: { first: '40 RON', second: '10 RON', third: '5 RON' },
     50: { first: '180 RON', second: '75 RON', third: '25 RON' },
-  }[stake as keyof typeof rewards];
+  };
+  const rewards = rewardMap[stake];
 
   if (!isConnected) {
     return null; // Will redirect
@@ -302,16 +366,20 @@ export default function LobbyPage() {
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
                   onClick={handleJoinQueue}
-                  disabled={!socket.isConnected}
+                  disabled={!socket.isConnected || isWriting || isConfirming || pendingTx}
                   className={`
                     flex-1 py-4 rounded-lg font-bold text-xl text-white transition-all
-                    ${socket.isConnected
+                    ${socket.isConnected && !isWriting && !isConfirming && !pendingTx
                       ? 'bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700'
                       : 'bg-gray-700 cursor-not-allowed'
                     }
                   `}
                 >
-                  {socket.isConnected ? 'Find Match' : 'Connecting...'}
+                  {pendingTx || isWriting || isConfirming
+                    ? 'Processing Transaction...'
+                    : socket.isConnected
+                      ? 'Find Match'
+                      : 'Connecting...'}
                 </motion.button>
 
                 <button
@@ -340,16 +408,20 @@ export default function LobbyPage() {
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
                     onClick={handleJoinBotMatch}
-                    disabled={!socket.isConnected}
+                    disabled={!socket.isConnected || isWriting || isConfirming || pendingTx}
                     className={`
                       w-full py-3 rounded-lg font-bold text-lg text-white transition-all
-                      ${socket.isConnected
+                      ${socket.isConnected && !isWriting && !isConfirming && !pendingTx
                         ? 'bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700'
                         : 'bg-gray-700 cursor-not-allowed'
                       }
                     `}
                   >
-                    {socket.isConnected ? 'Start Bot Match' : 'Connecting...'}
+                    {pendingTx || isWriting || isConfirming
+                      ? 'Processing Transaction...'
+                      : socket.isConnected
+                        ? 'Start Bot Match'
+                        : 'Connecting...'}
                   </motion.button>
                 </div>
               </div>

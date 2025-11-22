@@ -21,6 +21,12 @@ export class StateSync {
    */
   broadcastToMatch(playerIds: string[], event: ServerEvent): void {
     playerIds.forEach(playerId => {
+      // Skip bot players (they don't have real socket connections)
+      if (playerId.startsWith('bot_')) {
+        return;
+      }
+
+      console.log(`📤 Sending ${event.type} to player ${playerId.slice(0, 8)}...`);
       this.io.to(playerId).emit('server_event', event);
     });
   }
@@ -29,16 +35,32 @@ export class StateSync {
    * Send event to a specific player
    */
   sendToPlayer(playerId: string, event: ServerEvent): void {
+    // Skip bot players (they don't have real socket connections)
+    if (playerId.startsWith('bot_')) {
+      return;
+    }
+
+    console.log(`📤 Sending ${event.type} to player ${playerId.slice(0, 8)}...`);
     this.io.to(playerId).emit('server_event', event);
   }
 
   /**
    * Sync round start to all players
    */
-  syncRoundStart(playerIds: string[], round: number, phase: GamePhase): void {
+  syncRoundStart(playerIds: string[], round: number, phase: GamePhase, timeRemaining: number): void {
     this.broadcastToMatch(playerIds, {
       type: 'ROUND_START',
-      data: { round, phase },
+      data: { round, phase, timeRemaining },
+    });
+  }
+
+  /**
+   * Sync phase change to all players
+   */
+  syncPhaseChange(playerIds: string[], phase: GamePhase, round: number, timeRemaining: number): void {
+    this.broadcastToMatch(playerIds, {
+      type: 'ROUND_START', // Reuse ROUND_START for phase changes
+      data: { round, phase, timeRemaining },
     });
   }
 
@@ -55,10 +77,10 @@ export class StateSync {
   /**
    * Sync combat start with opponent information
    */
-  syncCombatStart(playerId: string, opponent: OpponentState): void {
+  syncCombatStart(playerId: string, opponent: OpponentState, timeRemaining: number): void {
     this.sendToPlayer(playerId, {
       type: 'COMBAT_START',
-      data: { opponent },
+      data: { opponent, timeRemaining },
     });
   }
 
@@ -89,12 +111,12 @@ export class StateSync {
   }
 
   /**
-   * Sync round end with damage and gold rewards
+   * Sync round end with damage and updated player state
    */
-  syncRoundEnd(playerId: string, damage: number, gold: number): void {
+  syncRoundEnd(playerId: string, damage: number, player: Player): void {
     this.sendToPlayer(playerId, {
       type: 'ROUND_END',
-      data: { damage, gold },
+      data: { damage, player },
     });
   }
 

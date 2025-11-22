@@ -57,7 +57,7 @@ const initialState: GameState = {
   matchId: '',
   round: 1,
   phase: 'PLANNING',
-  timeRemaining: 20,
+  timeRemaining: 30,
 
   player: {
     id: '',
@@ -401,20 +401,35 @@ export const useGameStore = create<GameStore>()(
     }),
 
     setPhase: (phase: GamePhase) => set((state) => {
+      console.log('🔄 [STORE] setPhase called:', {
+        oldPhase: state.phase,
+        newPhase: phase
+      });
       state.phase = phase;
 
       // Clear combat log when entering planning phase
       if (phase === 'PLANNING') {
         state.combatLog = [];
       }
+      console.log('✅ [STORE] Phase updated to:', state.phase);
     }),
 
     setRound: (round: number) => set((state) => {
+      console.log('🔄 [STORE] setRound called:', {
+        oldRound: state.round,
+        newRound: round
+      });
       state.round = round;
+      console.log('✅ [STORE] Round updated to:', state.round);
     }),
 
     setTimeRemaining: (time: number) => set((state) => {
+      console.log('🔄 [STORE] setTimeRemaining called:', {
+        oldTime: state.timeRemaining,
+        newTime: time
+      });
       state.timeRemaining = time;
+      console.log('✅ [STORE] Time updated to:', state.timeRemaining);
     }),
 
     updateShop: (shop: Shop) => set((state) => {

@@ -4,7 +4,10 @@
       "Bash(npm ls:*)",
       "Bash(test:*)",
       "Bash(npm install:*)",
-      "WebFetch(domain:docs.roninchain.com)"
+      "WebFetch(domain:docs.roninchain.com)",
+      "Bash(npx tsc:*)",
+      "Bash(netstat:*)",
+      "Bash(findstr:*)"
     ],
     "deny": [],
     "ask": []

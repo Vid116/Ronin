@@ -2,7 +2,7 @@
 
 import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Toaster } from 'react-hot-toast';
@@ -17,45 +17,85 @@ import { Card } from '@/components/game/Card';
 import { Unit } from '@/types/game';
 import toast from 'react-hot-toast';
 
-export default function MatchPage({ params }: { params: { id: string } }) {
+export default function MatchPage({ params }: { params: Promise<{ id: string }> }) {
+  const resolvedParams = use(params);
   const router = useRouter();
   const { socket } = useGame();
 
-  const {
-    round,
-    phase,
-    timeRemaining,
-    player,
-    opponents,
-    currentOpponent,
-    shop,
-    board,
-    bench,
-    combatLog,
-    buyCard,
-    sellCard,
-    placeCard,
-    rerollShop,
-    buyXP,
-  } = useGameStore();
+  // Use proper Zustand selectors to ensure component re-renders on state changes
+  const round = useGameStore((state) => state.round);
+  const phase = useGameStore((state) => state.phase);
+  const timeRemaining = useGameStore((state) => state.timeRemaining);
+  const player = useGameStore((state) => state.player);
+  const opponents = useGameStore((state) => state.opponents);
+  const currentOpponent = useGameStore((state) => state.currentOpponent);
+  const shop = useGameStore((state) => state.shop);
+  const board = useGameStore((state) => state.board);
+  const bench = useGameStore((state) => state.bench);
+  const combatLog = useGameStore((state) => state.combatLog);
+  const buyCard = useGameStore((state) => state.buyCard);
+  const sellCard = useGameStore((state) => state.sellCard);
+  const placeCard = useGameStore((state) => state.placeCard);
+  const rerollShop = useGameStore((state) => state.rerollShop);
+  const buyXP = useGameStore((state) => state.buyXP);
+
+  // Debug: Log when component receives new state
+  useEffect(() => {
+    console.log('🎮 [MATCH PAGE] State updated:', {
+      round,
+      phase,
+      timeRemaining
+    });
+  }, [round, phase, timeRemaining]);
 
   // Selection state for click-to-place
   const [selectedCard, setSelectedCard] = useState<{ unit: Unit; source: 'bench' | 'board'; position?: number } | null>(null);
 
-  // Redirect if not connected
-  useEffect(() => {
-    if (!socket.isConnected) {
-      console.warn('Not connected to game server, redirecting...');
-      // Give a small delay to allow connection
-      const timeout = setTimeout(() => {
-        if (!socket.isConnected) {
-          router.push('/');
-        }
-      }, 2000);
+  // REMOVED: Aggressive redirect check that was causing socket disconnect loop
+  // The socket has its own reconnection logic and the server will handle invalid matches
+  // If user shouldn't be here, server will send an error event
 
-      return () => clearTimeout(timeout);
-    }
-  }, [socket.isConnected, router]);
+  // Handle match end - navigate back to lobby after showing results
+  useEffect(() => {
+    const handleMatchEnd = () => {
+      console.log('🏁 [MATCH PAGE] Match ended, navigating to lobby in 5 seconds...');
+      // Give user time to see the final results toast
+      setTimeout(() => {
+        console.log('🏁 [MATCH PAGE] Navigating to lobby now');
+        router.push('/lobby');
+      }, 5000);
+    };
+
+    // Listen for server_event and check if it's MATCH_END
+    socket.socket?.on('server_event', (event: any) => {
+      if (event.type === 'MATCH_END') {
+        handleMatchEnd();
+      }
+    });
+
+    return () => {
+      socket.socket?.off('server_event', handleMatchEnd);
+    };
+  }, [router, socket.socket]);
+
+  // Client-side timer countdown - DISABLED for debugging
+  // This was interfering with server state updates
+  // TODO: Re-enable with proper server sync after debugging
+  useEffect(() => {
+    console.log('⏱️ [TIMER] Client timer effect triggered. Phase:', phase, 'Round:', round, 'Time:', timeRemaining);
+
+    // TEMPORARILY DISABLED - Let server handle all time updates
+    // if (timeRemaining <= 0) return;
+
+    // const interval = setInterval(() => {
+    //   const currentTime = useGameStore.getState().timeRemaining;
+    //   if (currentTime > 0) {
+    //     useGameStore.getState().setTimeRemaining(currentTime - 1);
+    //   }
+    // }, 1000);
+
+    // return () => clearInterval(interval);
+  }, [phase, round, timeRemaining]);
 
   const handleCardDrop = (unit: Unit, position: number) => {
     placeCard(unit.id, position);
@@ -125,7 +165,7 @@ export default function MatchPage({ params }: { params: { id: string } }) {
                 <span className="font-bold text-lg">Round {round}</span>
                 <span className="text-gray-400 ml-2">•</span>
                 <span className="text-gray-400 ml-2 text-sm">
-                  Match ID: {params.id.slice(0, 8)}...
+                  Match ID: {resolvedParams.id.slice(0, 8)}...
                 </span>
               </div>
               {/* Connection status */}

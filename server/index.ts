@@ -27,17 +27,25 @@ setInterval(() => {
 io.on('connection', (socket) => {
   console.log(`Client connected: ${socket.id}`);
 
+  // Check if player has an active match and sync state
+  const existingMatch = matchMaking.getMatchByPlayer(socket.id);
+  if (existingMatch) {
+    console.log(`${socket.id} reconnected to existing match, syncing state...`);
+    // Send full match state to re-sync the client
+    existingMatch.syncPlayerState(socket.id);
+  }
+
   // Handle client events
   socket.on('client_event', (event: ClientEvent) => {
     console.log(`Received event from ${socket.id}:`, event.type);
 
     switch (event.type) {
       case 'JOIN_QUEUE':
-        handleJoinQueue(socket, event.data.entryFee);
+        handleJoinQueue(socket, event.data.entryFee, event.data.transactionHash);
         break;
 
       case 'JOIN_BOT_MATCH':
-        handleJoinBotMatch(socket, event.data.entryFee);
+        handleJoinBotMatch(socket, event.data.entryFee, event.data.transactionHash);
         break;
 
       case 'BUY_CARD':
@@ -80,14 +88,14 @@ io.on('connection', (socket) => {
 });
 
 // Event handlers
-function handleJoinQueue(socket: any, entryFee: number) {
-  console.log(`${socket.id} joining queue with entry fee: ${entryFee}`);
-  matchMaking.addToQueue(socket.id, entryFee);
+function handleJoinQueue(socket: any, entryFee: number, transactionHash?: string) {
+  console.log(`${socket.id} joining queue with entry fee: ${entryFee}${transactionHash ? ` (tx: ${transactionHash})` : ''}`);
+  matchMaking.addToQueue(socket.id, entryFee, transactionHash);
 }
 
-function handleJoinBotMatch(socket: any, entryFee: number) {
-  console.log(`${socket.id} creating bot match with entry fee: ${entryFee}`);
-  matchMaking.createBotMatch(socket.id, entryFee);
+function handleJoinBotMatch(socket: any, entryFee: number, transactionHash?: string) {
+  console.log(`${socket.id} creating bot match with entry fee: ${entryFee}${transactionHash ? ` (tx: ${transactionHash})` : ''}`);
+  matchMaking.createBotMatch(socket.id, entryFee, transactionHash);
 }
 
 function handleBuyCard(socket: any, cardIndex: number) {
