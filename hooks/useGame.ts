@@ -15,7 +15,6 @@ export function useGame() {
   const matchId = useGameStore((state) => state.matchId);
   const round = useGameStore((state) => state.round);
   const phase = useGameStore((state) => state.phase);
-  const setSocketEmit = useGameStore((state) => state.setSocketEmit);
 
   // Get socket functions
   const socket = useSocket();
@@ -26,13 +25,6 @@ export function useGame() {
       setAddress(address);
     }
   }, [address, playerAddress, setAddress]);
-
-  // Connect socket emit to game store
-  useEffect(() => {
-    if (socket.emit) {
-      setSocketEmit(socket.emit);
-    }
-  }, [socket.emit, setSocketEmit]);
 
   return {
     // Wallet Info
