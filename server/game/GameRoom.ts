@@ -6,6 +6,7 @@ import { RoundManager } from './RoundManager';
 import { StateSync, PlayerGameState } from './StateSync';
 import { CombatSimulator } from './CombatSimulator';
 import { BotPlayer, createBotPlayers } from './BotPlayer';
+import { ContractService } from '../services/ContractService';
 
 interface QueuedPlayer {
   socketId: string;
@@ -21,6 +22,10 @@ const MAX_BENCH_SIZE = 8;
 export class GameRoom {
   private matchId: string;
   private io: SocketIOServer;
+
+  // Blockchain integration
+  private contractService: ContractService | null;
+  private blockchainMatchId: number | null;
 
   // Player management
   private players: Map<string, Player>; // wallet address → Player
@@ -47,9 +52,17 @@ export class GameRoom {
   private isMatchComplete: boolean = false;
   private eliminatedPlayers: Set<string>;
 
-  constructor(matchId: string, queuedPlayers: QueuedPlayer[], io: SocketIOServer) {
+  constructor(
+    matchId: string,
+    queuedPlayers: QueuedPlayer[],
+    io: SocketIOServer,
+    contractService: ContractService | null = null,
+    blockchainMatchId: number | null = null
+  ) {
     this.matchId = matchId;
     this.io = io;
+    this.contractService = contractService;
+    this.blockchainMatchId = blockchainMatchId;
 
     // Initialize systems
     this.shopGenerator = new ShopGenerator();
@@ -741,7 +754,7 @@ export class GameRoom {
   /**
    * End the match
    */
-  private endMatch(): void {
+  private async endMatch(): Promise<void> {
     if (this.isMatchComplete) return;
 
     console.log(`Match ${this.matchId} ending`);
@@ -763,6 +776,74 @@ export class GameRoom {
         playerId: p.id,
         placement: p.placement || 999,
       }));
+
+    // Submit results to blockchain if this is a paid match
+    if (this.contractService && this.blockchainMatchId !== null && !this.isBotMatch) {
+      try {
+        console.log(`🔗 Submitting match results to blockchain for match ${this.blockchainMatchId}`);
+
+        // Get all players sorted by placement
+        const sortedPlayers = Array.from(this.players.values())
+          .sort((a, b) => (a.placement || 999) - (b.placement || 999));
+
+        // Ensure we have exactly 6 players
+        if (sortedPlayers.length !== 6) {
+          throw new Error(`Invalid player count: ${sortedPlayers.length}. Expected 6.`);
+        }
+
+        // Extract wallet addresses and placements
+        const playerAddresses: string[] = [];
+        const playerPlacements: number[] = [];
+
+        for (const player of sortedPlayers) {
+          // Use the actual wallet address (player.address contains the real wallet)
+          playerAddresses.push(player.address);
+          playerPlacements.push(player.placement || 999);
+        }
+
+        // Validate we have real wallet addresses (not bot addresses)
+        const hasInvalidAddress = playerAddresses.some(addr =>
+          addr.startsWith('0x00000000') || !addr.startsWith('0x')
+        );
+
+        if (hasInvalidAddress) {
+          throw new Error('Cannot submit results with invalid wallet addresses');
+        }
+
+        // Submit to blockchain
+        await this.contractService.submitMatchResults(
+          this.blockchainMatchId,
+          playerAddresses,
+          playerPlacements
+        );
+
+        console.log(`   ✅ Match results submitted successfully`);
+
+        // Notify players that prizes are claimable
+        const allSocketIds = Array.from(this.walletToSocket.values());
+        allSocketIds.forEach(socketId => {
+          this.io.to(socketId).emit('server_event', {
+            type: 'PRIZES_CLAIMABLE',
+            data: {
+              matchId: this.matchId,
+              blockchainMatchId: this.blockchainMatchId,
+              message: 'Match results submitted! Winners can claim prizes from the contract.',
+            },
+          });
+        });
+      } catch (error: any) {
+        console.error(`   ❌ Failed to submit match results:`, error.message);
+
+        // Notify players of failure
+        const allSocketIds = Array.from(this.walletToSocket.values());
+        allSocketIds.forEach(socketId => {
+          this.io.to(socketId).emit('error', {
+            type: 'RESULTS_SUBMISSION_FAILED',
+            message: `Failed to submit match results to blockchain: ${error.message}`,
+          });
+        });
+      }
+    }
 
     // Notify all players via socket IDs
     const allSocketIds = Array.from(this.walletToSocket.values());
@@ -983,7 +1064,7 @@ export class GameRoom {
     // Sync shop
     const shop = this.playerShops.get(walletAddress);
     if (shop) {
-      this.stateSync.syncShop(socketId, shop);
+      this.stateSync.syncShopUpdate(socketId, shop);
     }
 
     console.log(`✅ State sync complete for wallet ${walletAddress} (socket: ${socketId})`);

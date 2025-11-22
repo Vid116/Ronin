@@ -2,6 +2,7 @@ import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import { MatchMaking } from './game/MatchMaking';
 import { ClientEvent } from '../types/game';
+import { logger } from './utils/logger';
 
 const PORT = process.env.PORT || 3001;
 
@@ -25,13 +26,11 @@ setInterval(() => {
 }, 60000); // Every 60 seconds
 
 io.on('connection', (socket) => {
-  console.log(`Client connected: ${socket.id}`);
-
   // Extract wallet address from auth handshake
   const walletAddress = socket.handshake.auth.walletAddress as string;
 
   if (!walletAddress || typeof walletAddress !== 'string') {
-    console.error(`Connection rejected - no wallet address provided`);
+    logger.error('Connection rejected - no wallet address provided', { socketId: socket.id });
     socket.emit('error', {
       type: 'AUTH_ERROR',
       message: 'Wallet address required to connect'
@@ -40,7 +39,10 @@ io.on('connection', (socket) => {
     return;
   }
 
-  console.log(`Wallet ${walletAddress} connected with socket ${socket.id}`);
+  logger.connect('New connection established', {
+    wallet: walletAddress,
+    socketId: socket.id
+  });
 
   // Store wallet address on socket for later use
   (socket as any).walletAddress = walletAddress;
@@ -51,7 +53,11 @@ io.on('connection', (socket) => {
   // Check if player has an active match by wallet address
   const existingMatch = matchMaking.getMatchByWallet(walletAddress);
   if (existingMatch) {
-    console.log(`Wallet ${walletAddress} reconnected to existing match, syncing state...`);
+    logger.connect('Player reconnected to existing match', {
+      wallet: walletAddress,
+      socketId: socket.id,
+      matchId: existingMatch.matchId
+    });
     // Update the socket mapping in the match
     existingMatch.updateSocketMapping(walletAddress, socket.id);
     // Send full match state to re-sync the client
@@ -60,7 +66,12 @@ io.on('connection', (socket) => {
 
   // Handle client events
   socket.on('client_event', (event: ClientEvent) => {
-    console.log(`Received event from ${socket.id}:`, event.type);
+    logger.receive(`Received ${event.type}`, {
+      wallet: walletAddress,
+      socketId: socket.id,
+      eventType: event.type,
+      data: event.data
+    });
 
     switch (event.type) {
       case 'JOIN_QUEUE':
@@ -100,150 +111,280 @@ io.on('connection', (socket) => {
         break;
 
       default:
-        console.warn(`Unknown event type: ${(event as any).type}`);
+        logger.error(`Unknown event type: ${(event as any).type}`, {
+          wallet: walletAddress,
+          socketId: socket.id,
+          event
+        });
     }
   });
 
   socket.on('disconnect', () => {
-    console.log(`Client disconnected: ${socket.id}`);
+    logger.disconnect('Client disconnected', {
+      wallet: walletAddress,
+      socketId: socket.id
+    });
     handleDisconnect(socket);
   });
 });
 
 // Event handlers
-function handleJoinQueue(socket: any, entryFee: number, transactionHash?: string) {
-  console.log(`${socket.id} joining queue with entry fee: ${entryFee}${transactionHash ? ` (tx: ${transactionHash})` : ''}`);
-  matchMaking.addToQueue(socket.id, entryFee, transactionHash);
+async function handleJoinQueue(socket: any, entryFee: number, transactionHash?: string) {
+  const walletAddress = socket.walletAddress;
+  logger.action('Player joining queue', {
+    wallet: walletAddress,
+    socketId: socket.id,
+    entryFee,
+    transactionHash
+  });
+
+  try {
+    await matchMaking.addToQueue(socket.id, entryFee, transactionHash);
+  } catch (error: any) {
+    logger.error('Failed to join queue', {
+      wallet: walletAddress,
+      socketId: socket.id,
+      error: error.message
+    });
+    socket.emit('error', {
+      type: 'QUEUE_JOIN_FAILED',
+      message: `Failed to join queue: ${error.message}`,
+    });
+  }
 }
 
-function handleJoinBotMatch(socket: any, entryFee: number, transactionHash?: string) {
-  console.log(`${socket.id} creating bot match with entry fee: ${entryFee}${transactionHash ? ` (tx: ${transactionHash})` : ''}`);
-  matchMaking.createBotMatch(socket.id, entryFee, transactionHash);
+async function handleJoinBotMatch(socket: any, entryFee: number, transactionHash?: string) {
+  const walletAddress = socket.walletAddress;
+  logger.action('Player creating bot match', {
+    wallet: walletAddress,
+    socketId: socket.id,
+    entryFee,
+    transactionHash
+  });
+
+  try {
+    await matchMaking.createBotMatch(socket.id, entryFee, transactionHash);
+  } catch (error: any) {
+    logger.error('Failed to create bot match', {
+      wallet: walletAddress,
+      socketId: socket.id,
+      error: error.message
+    });
+    socket.emit('error', {
+      type: 'BOT_MATCH_CREATION_FAILED',
+      message: `Failed to create bot match: ${error.message}`,
+    });
+  }
 }
 
 function handleBuyCard(socket: any, cardIndex: number) {
+  const walletAddress = socket.walletAddress;
   const gameRoom = matchMaking.getMatchByPlayer(socket.id);
+
   if (!gameRoom) {
+    logger.error('Buy card failed - not in active match', {
+      wallet: walletAddress,
+      socketId: socket.id
+    });
     socket.emit('error', { message: 'Not in an active match' });
     return;
   }
 
   const success = gameRoom.handleBuyCard(socket.id, cardIndex);
   if (!success) {
-    console.log(`${socket.id} failed to buy card at index ${cardIndex}`);
+    logger.action('Buy card failed - validation error', {
+      wallet: walletAddress,
+      socketId: socket.id,
+      cardIndex,
+      matchId: gameRoom.matchId
+    });
   }
 }
 
 function handleSellCard(socket: any, unitId: string) {
+  const walletAddress = socket.walletAddress;
   const gameRoom = matchMaking.getMatchByPlayer(socket.id);
+
   if (!gameRoom) {
+    logger.error('Sell card failed - not in active match', {
+      wallet: walletAddress,
+      socketId: socket.id
+    });
     socket.emit('error', { message: 'Not in an active match' });
     return;
   }
 
   const success = gameRoom.handleSellCard(socket.id, unitId);
   if (!success) {
-    console.log(`${socket.id} failed to sell card ${unitId}`);
+    logger.action('Sell card failed - validation error', {
+      wallet: walletAddress,
+      socketId: socket.id,
+      unitId,
+      matchId: gameRoom.matchId
+    });
   }
 }
 
 function handlePlaceCard(socket: any, unitId: string, position: number) {
+  const walletAddress = socket.walletAddress;
   const gameRoom = matchMaking.getMatchByPlayer(socket.id);
+
   if (!gameRoom) {
+    logger.error('Place card failed - not in active match', {
+      wallet: walletAddress,
+      socketId: socket.id
+    });
     socket.emit('error', { message: 'Not in an active match' });
     return;
   }
 
   const success = gameRoom.handlePlaceCard(socket.id, unitId, position);
   if (!success) {
-    console.log(`${socket.id} failed to place card ${unitId} at position ${position}`);
+    logger.action('Place card failed - validation error', {
+      wallet: walletAddress,
+      socketId: socket.id,
+      unitId,
+      position,
+      matchId: gameRoom.matchId
+    });
   }
 }
 
 function handleRerollShop(socket: any) {
+  const walletAddress = socket.walletAddress;
   const gameRoom = matchMaking.getMatchByPlayer(socket.id);
+
   if (!gameRoom) {
+    logger.error('Reroll shop failed - not in active match', {
+      wallet: walletAddress,
+      socketId: socket.id
+    });
     socket.emit('error', { message: 'Not in an active match' });
     return;
   }
 
   const success = gameRoom.handleRerollShop(socket.id);
   if (!success) {
-    console.log(`${socket.id} failed to reroll shop`);
+    logger.action('Reroll shop failed - validation error', {
+      wallet: walletAddress,
+      socketId: socket.id,
+      matchId: gameRoom.matchId
+    });
   }
 }
 
 function handleEquipItem(socket: any, itemId: string, unitId: string) {
+  const walletAddress = socket.walletAddress;
   const gameRoom = matchMaking.getMatchByPlayer(socket.id);
+
   if (!gameRoom) {
+    logger.error('Equip item failed - not in active match', {
+      wallet: walletAddress,
+      socketId: socket.id
+    });
     socket.emit('error', { message: 'Not in an active match' });
     return;
   }
 
   // TODO: Implement item equipping in GameRoom
-  console.log(`${socket.id} equipping item ${itemId} to unit ${unitId}`);
+  logger.action('Equip item - not yet implemented', {
+    wallet: walletAddress,
+    socketId: socket.id,
+    itemId,
+    unitId,
+    matchId: gameRoom.matchId
+  });
   socket.emit('error', { message: 'Item equipping not yet implemented' });
 }
 
 function handleBuyXP(socket: any) {
+  const walletAddress = socket.walletAddress;
   const gameRoom = matchMaking.getMatchByPlayer(socket.id);
+
   if (!gameRoom) {
+    logger.error('Buy XP failed - not in active match', {
+      wallet: walletAddress,
+      socketId: socket.id
+    });
     socket.emit('error', { message: 'Not in an active match' });
     return;
   }
 
   const success = gameRoom.handleBuyXP(socket.id);
   if (!success) {
-    console.log(`${socket.id} failed to buy XP`);
+    logger.action('Buy XP failed - validation error', {
+      wallet: walletAddress,
+      socketId: socket.id,
+      matchId: gameRoom.matchId
+    });
   }
 }
 
 function handleReady(socket: any) {
+  const walletAddress = socket.walletAddress;
   const gameRoom = matchMaking.getMatchByPlayer(socket.id);
+
   if (!gameRoom) {
+    logger.error('Ready failed - not in active match', {
+      wallet: walletAddress,
+      socketId: socket.id
+    });
     socket.emit('error', { message: 'Not in an active match' });
     return;
   }
 
   gameRoom.handleReady(socket.id);
-  console.log(`${socket.id} is ready`);
+  logger.action('Player ready', {
+    wallet: walletAddress,
+    socketId: socket.id,
+    matchId: gameRoom.matchId
+  });
 }
 
 function handleDisconnect(socket: any) {
   const walletAddress = socket.walletAddress;
   if (walletAddress) {
-    console.log(`Wallet ${walletAddress} disconnected (socket: ${socket.id})`);
-    matchMaking.handleDisconnect(walletAddress, socket.id);
+    logger.disconnect('Wallet disconnected', {
+      wallet: walletAddress,
+      socketId: socket.id
+    });
+    matchMaking.handleDisconnect(socket.id);
   } else {
     // Fallback for connections without wallet (shouldn't happen)
-    console.warn(`Socket ${socket.id} disconnected without wallet address`);
-    matchMaking.handleDisconnect(socket.id, socket.id);
+    logger.error('Socket disconnected without wallet address', {
+      socketId: socket.id
+    });
+    matchMaking.handleDisconnect(socket.id);
   }
 }
 
 // Start server
 httpServer.listen(PORT, () => {
-  console.log(`Game server running on port ${PORT}`);
-  console.log(`WebSocket server ready for connections`);
-  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  logger.info('Game server started', {
+    port: PORT,
+    environment: process.env.NODE_ENV || 'development'
+  });
 
   const status = matchMaking.getQueueStatus();
-  console.log(`Queue status: ${status.queueSize} players waiting, ${status.activeMatches} active matches`);
+  logger.info('Server status', {
+    queueSize: status.queueSize,
+    activeMatches: status.activeMatches
+  });
 });
 
 // Graceful shutdown
 process.on('SIGTERM', () => {
-  console.log('SIGTERM signal received: closing HTTP server');
+  logger.info('SIGTERM signal received - shutting down gracefully', {});
   httpServer.close(() => {
-    console.log('HTTP server closed');
+    logger.info('HTTP server closed', {});
     process.exit(0);
   });
 });
 
 process.on('SIGINT', () => {
-  console.log('SIGINT signal received: closing HTTP server');
+  logger.info('SIGINT signal received - shutting down gracefully', {});
   httpServer.close(() => {
-    console.log('HTTP server closed');
+    logger.info('HTTP server closed', {});
     process.exit(0);
   });
 });
