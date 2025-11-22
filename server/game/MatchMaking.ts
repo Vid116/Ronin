@@ -31,12 +31,18 @@ export class MatchMaking {
   private walletToSocket = new Map<string, string>(); // wallet address → current socket ID
   private socketToWallet = new Map<string, string>(); // socket ID → wallet address
   private io: SocketIOServer;
-  private readonly PLAYERS_PER_MATCH = 6;
+  private readonly PLAYERS_PER_MATCH: number;
   private readonly PAYMENT_TIMEOUT_MS = 120000; // 2 minutes for all players to pay
   private contractService: ContractService | null = null;
 
   constructor(io: SocketIOServer) {
     this.io = io;
+
+    // Get players per match from environment (default to 6 for production)
+    this.PLAYERS_PER_MATCH = parseInt(process.env.PLAYERS_PER_MATCH || '6', 10);
+    logger.info('MatchMaking initialized', {
+      playersPerMatch: this.PLAYERS_PER_MATCH
+    });
 
     // Initialize contract service if environment is configured
     try {

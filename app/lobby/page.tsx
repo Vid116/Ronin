@@ -150,11 +150,13 @@ export default function LobbyPage() {
 
   // Calculate prizes based on contract prize distribution
   // 72% first, 18% second, 10% third (after 8.3% platform fee)
+  // Note: Players per match can be configured via PLAYERS_PER_MATCH env var
+  const playersPerMatch = 6; // TODO: Get from server config
   const calculatePrizes = (entryFee: number) => {
     if (entryFee === 0) {
       return { first: 'Glory', second: 'Honor', third: 'Experience' };
     }
-    const prizePool = entryFee * 6;
+    const prizePool = entryFee * playersPerMatch;
     const afterFee = prizePool * 0.917; // 100% - 8.3% platform fee
     return {
       first: `${(afterFee * 0.72).toFixed(4)} RON`,

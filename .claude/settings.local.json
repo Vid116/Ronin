@@ -1,19 +1,7 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npm ls:*)",
-      "Bash(test:*)",
-      "Bash(npm install:*)",
-      "WebFetch(domain:docs.roninchain.com)",
-      "Bash(npx tsc:*)",
-      "Bash(netstat:*)",
-      "Bash(findstr:*)",
-      "Bash(find:*)",
-      "Bash(cat:*)",
-      "Bash(node -e:*)",
-      "Bash(dir \"C:\\Ronin\")",
-      "Bash(npm test:*)",
-      "Bash(git add:*)"
+      "Bash(git commit:*)"
     ],
     "deny": [],
     "ask": []
