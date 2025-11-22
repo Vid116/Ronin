@@ -80,13 +80,16 @@ ronin-rumble/
 
 ## 🎯 Development Roadmap
 
-### Week 1: Core Infrastructure ✅ In Progress
+### Week 1: Core Infrastructure ✅ COMPLETE!
 - [x] Project setup with RainbowKit
-- [x] Wallet connection
-- [x] Ronin chain configuration
-- [ ] Game state management
-- [ ] UI components
-- [ ] WebSocket server
+- [x] Wallet connection + Ronin chain configuration
+- [x] Game state management (Zustand + Immer)
+- [x] All UI components (Card, Board, Shop, Timer, Stats, OpponentList)
+- [x] Custom hooks (useGame, useContract, useSocket)
+- [x] Landing page + Lobby + Match pages
+- [x] WebSocket server + GameRoom + Matchmaking
+- [x] Drag & drop system (react-dnd)
+- [x] Real-time multiplayer foundation
 
 ### Week 2: Game Logic (Coming Soon)
 - Combat engine
