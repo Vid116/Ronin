@@ -97,6 +97,45 @@ export function useSocket() {
       handleServerEvent(event);
     });
 
+    // Full state sync (for reconnections)
+    socket.on('state_sync', (data: any) => {
+      console.log('📊 Full state sync received:', data);
+      updateFromServer({
+        matchId: data.matchId,
+        round: data.round,
+        phase: data.phase,
+        timeRemaining: data.timeRemaining,
+        player: data.player,
+        shop: data.shop,
+        board: data.board,
+        bench: data.bench,
+        opponents: data.opponents,
+      });
+    });
+
+    // Player stats updates
+    socket.on('player_stats_update', (player: any) => {
+      console.log('📊 Player stats update:', player);
+      updateFromServer({ player });
+    });
+
+    // Opponent board updates
+    socket.on('opponent_board_update', (data: any) => {
+      console.log('📊 Opponent board update:', data);
+      // Update opponent in opponents array
+      const currentOpponents = useGameStore.getState().opponents;
+      const updatedOpponents = currentOpponents.map(opp =>
+        opp.id === data.playerId ? { ...opp, board: data.board } : opp
+      );
+      updateFromServer({ opponents: updatedOpponents });
+    });
+
+    // Success messages
+    socket.on('success', (data: any) => {
+      console.log('✅ Success message:', data.message);
+      toast.success(data.message);
+    });
+
     // Error handling
     socket.on('error', (error: any) => {
       console.error('Socket error:', error);

@@ -50,6 +50,13 @@ io.on('connection', (socket) => {
   // Update socket mapping for this wallet
   matchMaking.updateSocketMapping(walletAddress, socket.id);
 
+  // Join socket to wallet address room for event broadcasting
+  socket.join(walletAddress);
+  logger.state('Socket joined wallet room', {
+    wallet: walletAddress,
+    socketId: socket.id
+  });
+
   // Check if player has an active match by wallet address
   const existingMatch = matchMaking.getMatchByWallet(walletAddress);
   if (existingMatch) {

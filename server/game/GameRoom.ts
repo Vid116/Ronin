@@ -993,8 +993,21 @@ export class GameRoom {
     // Remove old socket mapping if exists
     const oldSocketId = this.walletToSocket.get(walletAddress);
     if (oldSocketId) {
+      // Make old socket leave the wallet room
+      const oldSocket = this.io.sockets.sockets.get(oldSocketId);
+      if (oldSocket) {
+        oldSocket.leave(walletAddress);
+        console.log(`Old socket ${oldSocketId} left wallet room ${walletAddress}`);
+      }
       this.socketToWallet.delete(oldSocketId);
       console.log(`Removed old socket mapping: ${oldSocketId} → ${walletAddress}`);
+    }
+
+    // Make new socket join the wallet room
+    const newSocket = this.io.sockets.sockets.get(newSocketId);
+    if (newSocket) {
+      newSocket.join(walletAddress);
+      console.log(`New socket ${newSocketId} joined wallet room ${walletAddress}`);
     }
 
     // Add new mapping
