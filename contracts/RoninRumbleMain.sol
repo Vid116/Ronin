@@ -20,9 +20,9 @@ contract RoninRumbleMain is ReentrancyGuard, Pausable, Ownable {
     uint256 public constant PERCENT_DIVISOR = 1000; // For percentage calculations
 
     // Valid entry fee tiers (in wei)
-    uint256 public constant TIER_1 = 2 ether; // 2 RON
-    uint256 public constant TIER_2 = 10 ether; // 10 RON
-    uint256 public constant TIER_3 = 50 ether; // 50 RON
+    uint256 public constant TIER_1 = 0.001 ether; // 0.001 RON
+    uint256 public constant TIER_2 = 0.005 ether; // 0.005 RON
+    uint256 public constant TIER_3 = 0.01 ether; // 0.01 RON
 
     // State variables
     uint256 public nextMatchId;

@@ -2,7 +2,7 @@
 
 import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Toaster } from 'react-hot-toast';
@@ -15,6 +15,7 @@ import { PlayerStats } from '@/components/game/PlayerStats';
 import { OpponentList } from '@/components/game/OpponentList';
 import { Card } from '@/components/game/Card';
 import { Unit } from '@/types/game';
+import toast from 'react-hot-toast';
 
 export default function MatchPage({ params }: { params: { id: string } }) {
   const router = useRouter();
@@ -38,6 +39,9 @@ export default function MatchPage({ params }: { params: { id: string } }) {
     buyXP,
   } = useGameStore();
 
+  // Selection state for click-to-place
+  const [selectedCard, setSelectedCard] = useState<{ unit: Unit; source: 'bench' | 'board'; position?: number } | null>(null);
+
   // Redirect if not connected
   useEffect(() => {
     if (!socket.isConnected) {
@@ -55,21 +59,48 @@ export default function MatchPage({ params }: { params: { id: string } }) {
 
   const handleCardDrop = (unit: Unit, position: number) => {
     placeCard(unit.id, position);
+    setSelectedCard(null); // Clear selection on drop
   };
 
   const handleBuyCard = (index: number) => {
     buyCard(index);
   };
 
-  const handleSellCard = (position: number) => {
-    const unit = position < 4 ? board.top[position] : board.bottom[position - 4];
-    if (unit) {
-      sellCard(unit.id);
+  const handleBoardClick = (position: number) => {
+    if (selectedCard) {
+      // Placing selected card
+      placeCard(selectedCard.unit.id, position);
+      toast.success(`Placed ${selectedCard.unit.name}`);
+      setSelectedCard(null);
+    } else {
+      // Selecting card from board or selling
+      const unit = position < 4 ? board.top[position] : board.bottom[position - 4];
+      if (unit) {
+        setSelectedCard({ unit, source: 'board', position });
+        toast(`Selected ${unit.name}. Click a board position to move it.`, { icon: '👆' });
+      }
+    }
+  };
+
+  const handleBenchClick = (unit: Unit) => {
+    if (selectedCard) {
+      // Deselect if clicking same card
+      if (selectedCard.unit.id === unit.id) {
+        setSelectedCard(null);
+        toast('Deselected');
+      }
+    } else {
+      // Select card from bench
+      setSelectedCard({ unit, source: 'bench' });
+      toast(`Selected ${unit.name}. Click a board position to place it.`, { icon: '👆' });
     }
   };
 
   const handleBenchSell = (unitId: string) => {
     sellCard(unitId);
+    if (selectedCard?.unit.id === unitId) {
+      setSelectedCard(null);
+    }
   };
 
   const canBuyXP = player.gold >= 4;
@@ -157,8 +188,10 @@ export default function MatchPage({ params }: { params: { id: string } }) {
                   board={board}
                   isPlayerBoard={true}
                   onCardDrop={handleCardDrop}
-                  onCardClick={handleSellCard}
+                  onCardClick={handleBoardClick}
+                  onSlotClick={handleBoardClick}
                   isInteractive={isInteractive}
+                  selectedCardId={selectedCard?.unit.id}
                 />
               </motion.div>
 
@@ -176,7 +209,7 @@ export default function MatchPage({ params }: { params: { id: string } }) {
                         Bench ({bench.length}/8)
                       </span>
                       <span className="text-xs text-gray-400">
-                        Drag to board or right-click to sell
+                        {selectedCard ? '👆 Click board to place' : 'Click or drag cards • Right-click to sell'}
                       </span>
                     </div>
 
@@ -191,11 +224,15 @@ export default function MatchPage({ params }: { params: { id: string } }) {
                             e.preventDefault();
                             handleBenchSell(unit.id);
                           }}
+                          className={`
+                            ${selectedCard?.unit.id === unit.id ? 'ring-4 ring-purple-500 rounded-lg' : ''}
+                          `}
                         >
                           <Card
                             unit={unit}
                             isDraggable={true}
                             showCost={false}
+                            onClick={() => handleBenchClick(unit)}
                           />
                         </motion.div>
                       ))}

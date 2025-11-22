@@ -7,9 +7,9 @@ import type { SignerWithAddress } from "@nomicfoundation/hardhat-ethers/signers"
 
 describe("RoninRumbleMain", function () {
   // Entry fee tiers
-  const TIER_1 = ethers.parseEther("2");
-  const TIER_2 = ethers.parseEther("10");
-  const TIER_3 = ethers.parseEther("50");
+  const TIER_1 = ethers.parseEther("0.001");
+  const TIER_2 = ethers.parseEther("0.005");
+  const TIER_3 = ethers.parseEther("0.01");
 
   async function deployContractsFixture() {
     const [owner, gameServer, player1, player2, player3, player4, player5, player6, player7] =

@@ -10,7 +10,9 @@ interface BoardProps {
   isPlayerBoard: boolean;
   onCardDrop?: (unit: Unit, position: number) => void;
   onCardClick?: (position: number) => void;
+  onSlotClick?: (position: number) => void;
   isInteractive?: boolean;
+  selectedCardId?: string;
 }
 
 export function Board({
@@ -18,7 +20,9 @@ export function Board({
   isPlayerBoard,
   onCardDrop,
   onCardClick,
+  onSlotClick,
   isInteractive = false,
+  selectedCardId,
 }: BoardProps) {
   const renderSlot = (card: Unit | null, position: number, row: 'top' | 'bottom') => {
     const [{ isOver, canDrop }, drop] = useDrop(
@@ -34,6 +38,9 @@ export function Board({
       [position, isPlayerBoard, isInteractive]
     );
 
+    const isSelected = card?.id === selectedCardId;
+    const hasSelection = !!selectedCardId;
+
     return (
       <motion.div
         ref={isInteractive ? drop : null}
@@ -42,16 +49,28 @@ export function Board({
           relative rounded-lg border-2 transition-all
           ${card ? 'bg-transparent' : 'bg-gray-800/30'}
           ${isOver && canDrop ? 'border-green-400 bg-green-400/20' : ''}
-          ${!isOver && canDrop ? 'border-gray-600 border-dashed' : 'border-gray-700'}
-          ${!canDrop && card ? 'border-purple-500/50' : ''}
-          ${isInteractive && !card ? 'hover:border-gray-500' : ''}
+          ${!isOver && canDrop && hasSelection ? 'border-yellow-400 border-dashed animate-pulse' : ''}
+          ${!isOver && canDrop && !hasSelection ? 'border-gray-600 border-dashed' : ''}
+          ${!canDrop && card && !isSelected ? 'border-purple-500/50' : ''}
+          ${isSelected ? 'border-purple-500 border-4 ring-2 ring-purple-400' : 'border-gray-700'}
+          ${isInteractive && !card && hasSelection ? 'hover:border-yellow-500 cursor-pointer' : ''}
+          ${isInteractive && !card && !hasSelection ? 'hover:border-gray-500' : ''}
+          ${isInteractive && card ? 'cursor-pointer' : ''}
           w-24 h-32
         `}
-        onClick={() => card && onCardClick?.(position)}
-        whileHover={isInteractive && !card ? { scale: 1.02 } : {}}
+        onClick={() => {
+          if (card) {
+            onCardClick?.(position);
+          } else if (isInteractive) {
+            onSlotClick?.(position);
+          }
+        }}
+        whileHover={isInteractive ? { scale: 1.02 } : {}}
       >
         {/* Position Number */}
-        <div className="absolute -top-2 -left-2 w-6 h-6 bg-gray-900 border border-gray-600 rounded-full flex items-center justify-center text-xs font-bold text-gray-400 z-10">
+        <div className={`absolute -top-2 -left-2 w-6 h-6 bg-gray-900 border rounded-full flex items-center justify-center text-xs font-bold z-10 ${
+          isSelected ? 'border-purple-500 text-purple-400' : 'border-gray-600 text-gray-400'
+        }`}>
           {position + 1}
         </div>
 
@@ -69,7 +88,7 @@ export function Board({
         {/* Empty Slot Indicator */}
         {!card && isInteractive && (
           <div className="absolute inset-0 flex items-center justify-center text-gray-600 text-xs">
-            {isOver && canDrop ? '✓' : ''}
+            {isOver && canDrop ? '✓' : hasSelection ? '👆' : ''}
           </div>
         )}
       </motion.div>
