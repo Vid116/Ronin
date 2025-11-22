@@ -43,6 +43,19 @@ function createEmptyBoard(): Board {
   };
 }
 
+// Mock combat state for testing
+function createMockState(): CombatState {
+  return {
+    player1Board: new Map(),
+    player2Board: new Map(),
+    currentPosition: 0,
+    round: 1,
+    events: [],
+    randomSeed: 12345,
+    randomIndex: 0,
+  };
+}
+
 describe('Combat Engine', () => {
   describe('Basic Combat Simulation', () => {
     it('should simulate a simple 1v1 combat', () => {
@@ -128,7 +141,8 @@ describe('Combat Engine', () => {
         isDead: false,
       };
 
-      const damage = calculateDamage(attacker, defender);
+      const mockState = createMockState();
+      const damage = calculateDamage(attacker, defender, mockState);
 
       expect(damage).toBeGreaterThan(0);
       expect(typeof damage).toBe('number');
@@ -155,7 +169,8 @@ describe('Combat Engine', () => {
         isDead: false,
       };
 
-      const damage = calculateDamage(attacker, defender);
+      const mockState = createMockState();
+      const damage = calculateDamage(attacker, defender, mockState);
 
       expect(damage).toBeGreaterThanOrEqual(1);
     });

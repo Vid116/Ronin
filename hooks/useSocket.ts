@@ -241,6 +241,9 @@ export function useSocket() {
         break;
 
       case 'MATCH_END':
+        // Clear matchId to indicate match is over
+        setMatchId(null);
+
         // Find our placement by wallet address
         const myPlacement = event.data.placements.find(
           (p) => p.playerId === connectedAddress
@@ -318,6 +321,10 @@ export function useSocket() {
     return emit('JOIN_BOT_MATCH', { entryFee, transactionHash });
   }, [emit]);
 
+  const forceEndMatch = useCallback(() => {
+    return emit('DEV_FORCE_END_MATCH');
+  }, [emit]);
+
   return {
     isConnected,
     error,
@@ -336,5 +343,6 @@ export function useSocket() {
     buyXP,
     equipItem,
     ready,
+    forceEndMatch,
   };
 }

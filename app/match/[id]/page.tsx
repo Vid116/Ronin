@@ -40,6 +40,7 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
   const placeCard = socket.placeCard;
   const rerollShop = socket.rerollShop;
   const buyXP = socket.buyXP;
+  const forceEndMatch = socket.forceEndMatch;
 
   // Debug: Log when component receives new state
   useEffect(() => {
@@ -185,6 +186,21 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
 
             <Timer timeRemaining={timeRemaining} phase={phase} />
           </div>
+
+          {/* DEV: Force End Match Button */}
+          {process.env.NODE_ENV === 'development' && (
+            <button
+              onClick={() => {
+                if (confirm('Force end this match? All players will be kicked to lobby.')) {
+                  forceEndMatch();
+                  toast.success('Match force ended');
+                }
+              }}
+              className="fixed top-4 right-4 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-semibold shadow-lg z-50 border border-red-500"
+            >
+              Force End Match (DEV)
+            </button>
+          )}
 
           {/* Main Game Layout */}
           <div className="grid grid-cols-12 gap-4">

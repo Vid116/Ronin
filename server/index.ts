@@ -117,6 +117,10 @@ io.on('connection', (socket) => {
         handleReady(socket);
         break;
 
+      case 'DEV_FORCE_END_MATCH':
+        handleForceEndMatch(socket);
+        break;
+
       default:
         logger.error(`Unknown event type: ${(event as any).type}`, {
           wallet: walletAddress,
@@ -346,6 +350,56 @@ function handleReady(socket: any) {
     socketId: socket.id,
     matchId: gameRoom.matchId
   });
+}
+
+function handleForceEndMatch(socket: any) {
+  const walletAddress = socket.walletAddress;
+
+  logger.action('DEV: Attempting to force end match', {
+    wallet: walletAddress,
+    socketId: socket.id
+  });
+
+  // Get all active matches for debugging
+  const queueStatus = matchMaking.getQueueStatus();
+  logger.action('DEV: Current server state', {
+    activeMatchCount: queueStatus.activeMatches,
+    queueSize: queueStatus.queueSize
+  });
+
+  // Try to find match by wallet address (more reliable for reconnections)
+  const gameRoomByWallet = matchMaking.getMatchByWallet(walletAddress);
+  const gameRoomBySocket = matchMaking.getMatchByPlayer(socket.id);
+
+  logger.action('DEV: Match lookup results', {
+    wallet: walletAddress,
+    socketId: socket.id,
+    foundByWallet: !!gameRoomByWallet,
+    foundBySocket: !!gameRoomBySocket,
+    matchIdByWallet: gameRoomByWallet?.matchId,
+    matchIdBySocket: gameRoomBySocket?.matchId
+  });
+
+  const gameRoom = gameRoomByWallet || gameRoomBySocket;
+
+  if (!gameRoom) {
+    logger.error('Force end failed - not in active match', {
+      wallet: walletAddress,
+      socketId: socket.id,
+      activeMatches: queueStatus.activeMatches,
+      debugInfo: 'No match found by wallet or socket ID'
+    });
+    socket.emit('error', { message: 'Not in an active match. The match may have already ended.' });
+    return;
+  }
+
+  logger.action('DEV: Force ending match', {
+    wallet: walletAddress,
+    socketId: socket.id,
+    matchId: gameRoom.matchId
+  });
+
+  gameRoom.forceComplete();
 }
 
 function handleDisconnect(socket: any) {

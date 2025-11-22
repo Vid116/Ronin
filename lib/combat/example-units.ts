@@ -236,7 +236,7 @@ export const EXAMPLE_UNITS = {
 /**
  * Helper to create a test board
  */
-export function createTestBoard(units: Unit[]): { top: (Unit | null)[]; bottom: (Unit | null)[] } {
+export function createTestBoard(units: (Unit | null)[]): { top: (Unit | null)[]; bottom: (Unit | null)[] } {
   return {
     top: [units[0] || null, units[1] || null, units[2] || null, units[3] || null],
     bottom: [units[4] || null, units[5] || null, units[6] || null, units[7] || null],

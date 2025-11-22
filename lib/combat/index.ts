@@ -7,9 +7,7 @@ export {
   processTriggers,
   processStartOfCombatAbilities,
   processOnAttackAbilities,
-  processOnHitAbilities,
   processOnDeathAbilities,
-  processOnKillAbilities,
 } from './abilities';
 export { createEvent, logAttack, logAbility, logDeath, getCombatSummary } from './events';
 

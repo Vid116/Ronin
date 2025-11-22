@@ -332,8 +332,39 @@ export class GameRoom {
     const timeRemaining = this.roundManager.getTimeRemaining();
     this.stateSync.syncCombatStart(playerSocketId, opponentState, timeRemaining);
 
-    // Simulate combat
-    const result = this.combatSimulator.simulateCombat(playerBoard, opponentBoard);
+    // Simulate combat (pass round number and player info for ROFL)
+    const currentRound = this.roundManager.getCurrentRound();
+    const result = this.combatSimulator.simulateCombat(
+      playerBoard,
+      opponentBoard,
+      currentRound,
+      playerWallet,
+      opponentWallet,
+      this.matchId
+    );
+
+    console.log(`📊 Combat Result:`, {
+      player: playerWallet.substring(0, 8),
+      opponent: opponentWallet.substring(0, 8),
+      winner: result.winner,
+      playerUnits: result.playerUnitsRemaining,
+      opponentUnits: result.opponentUnitsRemaining,
+      damage: result.damageDealt,
+      seed: result.seed,
+    });
+
+    // Send initial boards (for visual display)
+    this.io.to(playerSocketId).emit('server_event', {
+      type: 'COMBAT_BOARDS',
+      data: {
+        initialBoard1: result.initialBoard1,
+        initialBoard2: result.initialBoard2,
+        finalBoard1: result.finalBoard1,
+        finalBoard2: result.finalBoard2,
+        playerUnitsRemaining: result.playerUnitsRemaining,
+        opponentUnitsRemaining: result.opponentUnitsRemaining,
+      },
+    });
 
     // Send combat events to player
     result.combatLog.forEach(event => {
@@ -1123,6 +1154,55 @@ export class GameRoom {
     }
 
     console.log(`✅ State sync complete for wallet ${walletAddress} (socket: ${socketId})`);
+  }
+
+  /**
+   * Force complete match (dev utility)
+   * Immediately ends the match without blockchain submission
+   */
+  forceComplete(): void {
+    if (this.isMatchComplete) return;
+
+    console.log(`🔴 DEV: Force completing match ${this.matchId}`);
+
+    // Stop all timers immediately
+    this.roundManager.cleanup();
+
+    // Mark as complete
+    this.isMatchComplete = true;
+
+    // Assign placements to all remaining players based on current standings
+    const activePlayers = Array.from(this.players.values())
+      .filter(p => !this.eliminatedPlayers.has(p.id))
+      .sort((a, b) => {
+        // Sort by health first, then by level
+        if (b.health !== a.health) return b.health - a.health;
+        return b.level - a.level;
+      });
+
+    // Assign placements to active players
+    activePlayers.forEach((player, index) => {
+      if (!player.placement) {
+        player.placement = index + 1;
+      }
+    });
+
+    // Create placements array for all players
+    const placements = Array.from(this.players.values())
+      .sort((a, b) => (a.placement || 999) - (b.placement || 999))
+      .map(p => ({
+        playerId: p.id,
+        placement: p.placement || 999,
+      }));
+
+    // Emit to all players
+    const allSocketIds = Array.from(this.walletToSocket.values());
+    this.stateSync.syncMatchEnd(allSocketIds, placements);
+
+    // Cleanup resources
+    this.cleanup();
+
+    console.log(`✅ DEV: Match ${this.matchId} force completed`);
   }
 
   /**

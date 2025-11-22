@@ -8,7 +8,11 @@
       "Bash(npx tsc:*)",
       "Bash(netstat:*)",
       "Bash(findstr:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(cat:*)",
+      "Bash(node -e:*)",
+      "Bash(dir \"C:\\Ronin\")",
+      "Bash(npm test:*)"
     ],
     "deny": [],
     "ask": []

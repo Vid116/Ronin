@@ -88,29 +88,18 @@ export default function LobbyPage() {
       return;
     }
 
-    // For free matches, join directly without blockchain transaction
-    if (stake === 0) {
-      const success = socket.joinQueue(stake);
-      if (success) {
-        joinQueue(stake);
-        toast.success('Searching for opponents...');
+    // Join queue directly - server will create blockchain match when ready
+    // For paid matches, players will be prompted to join the match after creation
+    const success = socket.joinQueue(stake);
+    if (success) {
+      joinQueue(stake);
+      if (stake > 0) {
+        toast.success(`Searching for opponents... You'll be prompted to pay ${stake} RON when match is ready.`);
       } else {
-        toast.error('Failed to join queue');
+        toast.success('Searching for opponents...');
       }
-      return;
-    }
-
-    // For paid matches, create blockchain transaction first
-    try {
-      setPendingTx(true);
-      toast.loading('Creating match on blockchain...', { id: 'blockchain-tx' });
-      await createMatch(stake);
-      toast.success('Transaction submitted! Waiting for confirmation...', { id: 'blockchain-tx' });
-      // The useEffect above will handle joining queue after confirmation
-    } catch (error) {
-      setPendingTx(false);
-      toast.error('Transaction failed', { id: 'blockchain-tx' });
-      console.error('Blockchain transaction error:', error);
+    } else {
+      toast.error('Failed to join queue');
     }
   };
 
@@ -131,40 +120,14 @@ export default function LobbyPage() {
       return;
     }
 
-    // For free matches, join directly without blockchain transaction
-    if (stake === 0) {
-      const success = socket.joinBotMatch(stake);
-      if (success) {
-        toast.success('Starting bot match...');
-      } else {
-        toast.error('Failed to create bot match');
-      }
-      return;
-    }
-
-    // For paid matches, create blockchain transaction first
-    try {
-      setPendingTx(true);
-      toast.loading('Creating match on blockchain...', { id: 'blockchain-tx' });
-      await createMatch(stake);
-      toast.success('Transaction submitted! Waiting for confirmation...', { id: 'blockchain-tx' });
-
-      // Wait for confirmation then join bot match
-      // This is handled by the useEffect, but we need a separate flow for bot matches
-      // For now, let's just join after the transaction is submitted
-      // In production, you'd want to wait for confirmation
-      const success = socket.joinBotMatch(stake, txHash || undefined);
-      if (success) {
-        toast.success('Starting bot match...');
-        setPendingTx(false);
-      } else {
-        toast.error('Failed to create bot match');
-        setPendingTx(false);
-      }
-    } catch (error) {
-      setPendingTx(false);
-      toast.error('Transaction failed', { id: 'blockchain-tx' });
-      console.error('Blockchain transaction error:', error);
+    // Bot matches don't use blockchain - just join directly
+    // The server handles bot matches without blockchain integration
+    // For paid bot matches, payment verification can be added later
+    const success = socket.joinBotMatch(stake);
+    if (success) {
+      toast.success('Starting bot match...');
+    } else {
+      toast.error('Failed to create bot match');
     }
   };
 
@@ -433,6 +396,30 @@ export default function LobbyPage() {
                   className="text-center text-yellow-400 text-sm"
                 >
                   Connecting to game server...
+                </motion.div>
+              )}
+
+              {/* DEV: Force End Match Button */}
+              {process.env.NODE_ENV === 'development' && matchId && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="mt-6 p-4 bg-red-900/20 border border-red-500 rounded-lg"
+                >
+                  <p className="text-red-400 text-sm mb-3 font-semibold">
+                    ⚠️ You are currently in a match: {matchId.slice(0, 8)}...
+                  </p>
+                  <button
+                    onClick={() => {
+                      if (confirm('Force end your active match? All players will be kicked to lobby.')) {
+                        socket.forceEndMatch();
+                        toast.success('Match force ended');
+                      }
+                    }}
+                    className="w-full bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors"
+                  >
+                    Force End Active Match (DEV)
+                  </button>
                 </motion.div>
               )}
             </motion.div>

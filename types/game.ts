@@ -149,7 +149,8 @@ export type ClientEvent =
   | { type: 'REROLL_SHOP' }
   | { type: 'EQUIP_ITEM'; data: { itemId: string; unitId: string } }
   | { type: 'BUY_XP' }
-  | { type: 'READY' };
+  | { type: 'READY' }
+  | { type: 'DEV_FORCE_END_MATCH' };
 
 // Synergy Types
 export interface Synergy {
