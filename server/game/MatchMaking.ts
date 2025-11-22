@@ -14,13 +14,25 @@ interface QueuedPlayer {
   walletAddress?: string;
 }
 
+interface PendingMatch {
+  localMatchId: string;
+  blockchainMatchId: number;
+  entryFee: number;
+  players: QueuedPlayer[];
+  playersPaid: Set<string>; // wallet addresses that have paid
+  createdAt: number;
+  deadline: number;
+}
+
 export class MatchMaking {
   private queue: QueuedPlayer[] = [];
   private activeMatches = new Map<string, GameRoom>();
+  private pendingMatches = new Map<string, PendingMatch>(); // localMatchId → pending match
   private walletToSocket = new Map<string, string>(); // wallet address → current socket ID
   private socketToWallet = new Map<string, string>(); // socket ID → wallet address
   private io: SocketIOServer;
   private readonly PLAYERS_PER_MATCH = 6;
+  private readonly PAYMENT_TIMEOUT_MS = 120000; // 2 minutes for all players to pay
   private contractService: ContractService | null = null;
 
   constructor(io: SocketIOServer) {
@@ -259,7 +271,232 @@ export class MatchMaking {
     // Generate local match ID (can be different from blockchain ID)
     const localMatchId = `match-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-    logger.match('Starting PvP match', {
+    // For paid matches with blockchain integration, wait for all players to pay
+    if (blockchainMatchId !== null && entryFee > 0) {
+      const deadline = Date.now() + this.PAYMENT_TIMEOUT_MS;
+
+      // Create pending match
+      const pendingMatch: PendingMatch = {
+        localMatchId,
+        blockchainMatchId,
+        entryFee,
+        players: matchPlayers,
+        playersPaid: new Set(),
+        createdAt: Date.now(),
+        deadline,
+      };
+      this.pendingMatches.set(localMatchId, pendingMatch);
+
+      logger.match('Blockchain match created, awaiting payments', {
+        matchId: localMatchId,
+        blockchainMatchId,
+        playerCount: matchPlayers.length,
+        entryFee,
+        deadline: new Date(deadline).toISOString()
+      });
+
+      // Notify all players to submit payment
+      matchPlayers.forEach(({ socketId }) => {
+        this.io.to(socketId).emit('server_event', {
+          type: 'AWAITING_PAYMENT',
+          data: {
+            blockchainMatchId,
+            entryFee,
+            deadline,
+          },
+        });
+      });
+
+      // Set timeout to cancel match if not all players pay
+      setTimeout(() => {
+        this.checkPendingMatchTimeout(localMatchId);
+      }, this.PAYMENT_TIMEOUT_MS);
+
+      return;
+    }
+
+    // For free matches, start immediately
+    logger.match('Starting free match immediately', {
+      matchId: localMatchId,
+      playerCount: matchPlayers.length
+    });
+
+    this.startMatch(localMatchId, matchPlayers, blockchainMatchId, entryFee);
+  }
+
+  /**
+   * Submit payment for a pending match
+   */
+  async submitPayment(socketId: string, blockchainMatchId: number, transactionHash: string): Promise<void> {
+    const walletAddress = this.socketToWallet.get(socketId);
+    if (!walletAddress) {
+      logger.error('Payment submission failed: no wallet address', { socketId });
+      this.io.to(socketId).emit('error', {
+        type: 'PAYMENT_FAILED',
+        message: 'Wallet address not found',
+      });
+      return;
+    }
+
+    // Find pending match
+    let pendingMatch: PendingMatch | undefined;
+    let matchId: string | undefined;
+    for (const [id, pm] of this.pendingMatches.entries()) {
+      if (pm.blockchainMatchId === blockchainMatchId) {
+        pendingMatch = pm;
+        matchId = id;
+        break;
+      }
+    }
+
+    if (!pendingMatch || !matchId) {
+      logger.error('Payment submission failed: pending match not found', {
+        wallet: walletAddress,
+        blockchainMatchId
+      });
+      this.io.to(socketId).emit('error', {
+        type: 'PAYMENT_FAILED',
+        message: 'Match not found or already started',
+      });
+      return;
+    }
+
+    // Check if player already paid
+    if (pendingMatch.playersPaid.has(walletAddress)) {
+      logger.action('Player already paid for match', {
+        wallet: walletAddress,
+        blockchainMatchId
+      });
+      return;
+    }
+
+    // Verify transaction
+    if (this.contractService) {
+      try {
+        await this.contractService.verifyJoinMatch(
+          transactionHash,
+          blockchainMatchId,
+          walletAddress,
+          pendingMatch.entryFee
+        );
+
+        logger.action('Payment verified successfully', {
+          wallet: walletAddress,
+          blockchainMatchId,
+          transactionHash
+        });
+      } catch (error: any) {
+        logger.error('Payment verification failed', {
+          wallet: walletAddress,
+          blockchainMatchId,
+          transactionHash,
+          error: error.message
+        });
+        this.io.to(socketId).emit('error', {
+          type: 'PAYMENT_VERIFICATION_FAILED',
+          message: `Payment verification failed: ${error.message}`,
+        });
+        return;
+      }
+    }
+
+    // Mark player as paid
+    pendingMatch.playersPaid.add(walletAddress);
+
+    logger.state('Player payment confirmed', {
+      wallet: walletAddress,
+      blockchainMatchId,
+      playersPaid: pendingMatch.playersPaid.size,
+      totalPlayers: pendingMatch.players.length
+    });
+
+    // Notify all players in this match about payment progress
+    pendingMatch.players.forEach(({ socketId: pSocketId }) => {
+      this.io.to(pSocketId).emit('server_event', {
+        type: 'PAYMENT_CONFIRMED',
+        data: {
+          playerId: socketId,
+          playersReady: pendingMatch!.playersPaid.size,
+          totalPlayers: pendingMatch!.players.length,
+        },
+      });
+    });
+
+    // Start match if all players paid
+    if (pendingMatch.playersPaid.size === pendingMatch.players.length) {
+      logger.match('All payments confirmed, starting match', {
+        matchId,
+        blockchainMatchId
+      });
+
+      // Remove from pending
+      this.pendingMatches.delete(matchId);
+
+      // Notify all players
+      pendingMatch.players.forEach(({ socketId: pSocketId }) => {
+        this.io.to(pSocketId).emit('server_event', {
+          type: 'ALL_PAYMENTS_CONFIRMED',
+          data: { matchId },
+        });
+      });
+
+      // Start the match
+      this.startMatch(matchId, pendingMatch.players, blockchainMatchId, pendingMatch.entryFee);
+    }
+  }
+
+  /**
+   * Check if a pending match has timed out
+   */
+  private checkPendingMatchTimeout(localMatchId: string): void {
+    const pendingMatch = this.pendingMatches.get(localMatchId);
+    if (!pendingMatch) {
+      return; // Already started or cancelled
+    }
+
+    if (Date.now() >= pendingMatch.deadline) {
+      logger.match('Match cancelled: payment timeout', {
+        matchId: localMatchId,
+        blockchainMatchId: pendingMatch.blockchainMatchId,
+        playersPaid: pendingMatch.playersPaid.size,
+        totalPlayers: pendingMatch.players.length
+      });
+
+      // Notify all players
+      pendingMatch.players.forEach(({ socketId }) => {
+        this.io.to(socketId).emit('server_event', {
+          type: 'MATCH_CANCELLED',
+          data: {
+            reason: `Match cancelled: only ${pendingMatch.playersPaid.size}/${pendingMatch.players.length} players paid within time limit`,
+          },
+        });
+      });
+
+      // Return unpaid players to queue
+      const unpaidPlayers = pendingMatch.players.filter(p =>
+        p.walletAddress && !pendingMatch.playersPaid.has(p.walletAddress)
+      );
+      this.queue.unshift(...unpaidPlayers);
+
+      logger.state('Unpaid players returned to queue', {
+        count: unpaidPlayers.length
+      });
+
+      // Remove pending match
+      this.pendingMatches.delete(localMatchId);
+    }
+  }
+
+  /**
+   * Start a match (after all payments confirmed or for free matches)
+   */
+  private startMatch(
+    localMatchId: string,
+    matchPlayers: QueuedPlayer[],
+    blockchainMatchId: number | null,
+    entryFee: number
+  ): void {
+    logger.match('Starting match', {
       matchId: localMatchId,
       blockchainMatchId,
       playerCount: matchPlayers.length,
@@ -276,7 +513,7 @@ export class MatchMaking {
     );
     this.activeMatches.set(localMatchId, gameRoom);
 
-    // Notify all players that match was found
+    // Notify all players that match is starting
     matchPlayers.forEach(({ socketId }) => {
       this.io.to(socketId).emit('server_event', {
         type: 'MATCH_FOUND',

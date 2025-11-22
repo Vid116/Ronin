@@ -108,6 +108,27 @@ export interface GameState {
 
   // Stats
   combatLog: CombatEvent[];
+
+  // Combat visualization
+  combatInitialBoards?: {
+    player: Board;
+    opponent: Board;
+  };
+  combatFinalBoards?: {
+    player: Board;
+    opponent: Board;
+  };
+  combatUnitsRemaining?: {
+    player: number;
+    opponent: number;
+  };
+
+  // Blockchain payment
+  pendingPayment?: {
+    blockchainMatchId: number;
+    entryFee: number;
+    deadline: number;
+  } | null;
 }
 
 // Combat Types
@@ -132,10 +153,23 @@ export interface OpponentState {
 // WebSocket Event Types
 export type ServerEvent =
   | { type: 'MATCH_FOUND'; data: Match }
+  | { type: 'BLOCKCHAIN_MATCH_CREATED'; data: { matchId: number; entryFee: number; playersReady: number } }
+  | { type: 'AWAITING_PAYMENT'; data: { blockchainMatchId: number; entryFee: number; deadline: number } }
+  | { type: 'PAYMENT_CONFIRMED'; data: { playerId: string; playersReady: number; totalPlayers: number } }
+  | { type: 'ALL_PAYMENTS_CONFIRMED'; data: { matchId: string } }
+  | { type: 'MATCH_CANCELLED'; data: { reason: string } }
   | { type: 'ROUND_START'; data: { round: number; phase: GamePhase; timeRemaining: number } }
   | { type: 'SHOP_UPDATE'; data: Shop }
   | { type: 'COMBAT_START'; data: { opponent: OpponentState; timeRemaining: number } }
   | { type: 'COMBAT_EVENT'; data: CombatEvent }
+  | { type: 'COMBAT_BOARDS'; data: {
+      initialBoard1: Board;
+      initialBoard2: Board;
+      finalBoard1: Board;
+      finalBoard2: Board;
+      playerUnitsRemaining: number;
+      opponentUnitsRemaining: number;
+    }}
   | { type: 'ROUND_END'; data: { damage: number; player: Player } }
   | { type: 'PLAYER_ELIMINATED'; data: { playerId: string } }
   | { type: 'MATCH_END'; data: { placements: { playerId: string; placement: number }[] } };
@@ -143,6 +177,7 @@ export type ServerEvent =
 export type ClientEvent =
   | { type: 'JOIN_QUEUE'; data: { entryFee: number; transactionHash?: string } }
   | { type: 'JOIN_BOT_MATCH'; data: { entryFee: number; transactionHash?: string } }
+  | { type: 'SUBMIT_PAYMENT'; data: { blockchainMatchId: number; transactionHash: string } }
   | { type: 'BUY_CARD'; data: { cardIndex: number } }
   | { type: 'SELL_CARD'; data: { unitId: string } }
   | { type: 'PLACE_CARD'; data: { unitId: string; position: number } }

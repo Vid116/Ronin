@@ -58,6 +58,11 @@ const initialState: GameState = {
   bench: [],
   items: [],
   combatLog: [],
+
+  // Combat visualization
+  combatInitialBoards: undefined,
+  combatFinalBoards: undefined,
+  combatUnitsRemaining: undefined,
 };
 
 export const useGameStore = create<GameStore>()(
@@ -110,7 +115,14 @@ export const useGameStore = create<GameStore>()(
     }),
 
     updateFromServer: (data: Partial<GameState>) => set((state) => {
-      Object.assign(state, data);
+      // Only update fields that are actually defined (not undefined)
+      // This prevents partial updates from overwriting existing state with undefined
+      Object.keys(data).forEach((key) => {
+        const value = (data as any)[key];
+        if (value !== undefined) {
+          (state as any)[key] = value;
+        }
+      });
     }),
 
     // Reset to initial state

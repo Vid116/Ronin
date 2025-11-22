@@ -97,20 +97,23 @@ export function useSocket() {
       handleServerEvent(event);
     });
 
-    // Full state sync (for reconnections)
+    // Full state sync (for reconnections and partial updates)
     socket.on('state_sync', (data: any) => {
-      console.log('📊 Full state sync received:', data);
-      updateFromServer({
-        matchId: data.matchId,
-        round: data.round,
-        phase: data.phase,
-        timeRemaining: data.timeRemaining,
-        player: data.player,
-        shop: data.shop,
-        board: data.board,
-        bench: data.bench,
-        opponents: data.opponents,
-      });
+      console.log('📊 State sync received:', data);
+      // Only pass through fields that are actually defined in the data
+      // This prevents partial updates from setting fields to undefined
+      const updateData: Partial<any> = {};
+      if (data.matchId !== undefined) updateData.matchId = data.matchId;
+      if (data.round !== undefined) updateData.round = data.round;
+      if (data.phase !== undefined) updateData.phase = data.phase;
+      if (data.timeRemaining !== undefined) updateData.timeRemaining = data.timeRemaining;
+      if (data.player !== undefined) updateData.player = data.player;
+      if (data.shop !== undefined) updateData.shop = data.shop;
+      if (data.board !== undefined) updateData.board = data.board;
+      if (data.bench !== undefined) updateData.bench = data.bench;
+      if (data.opponents !== undefined) updateData.opponents = data.opponents;
+
+      updateFromServer(updateData);
     });
 
     // Player stats updates
@@ -174,6 +177,38 @@ export function useSocket() {
         toast.success('Match found! Get ready to battle!', { duration: 3000 });
         break;
 
+      case 'AWAITING_PAYMENT':
+        console.log('📊 [AWAITING_PAYMENT] Payment required:', event.data);
+        // Store pending payment info in game store for lobby to display
+        useGameStore.setState({
+          pendingPayment: {
+            blockchainMatchId: event.data.blockchainMatchId,
+            entryFee: event.data.entryFee,
+            deadline: event.data.deadline,
+          }
+        });
+        toast('Payment required to join match', { icon: '💰', duration: 5000 });
+        break;
+
+      case 'PAYMENT_CONFIRMED':
+        console.log('📊 [PAYMENT_CONFIRMED] Payment confirmed:', event.data);
+        toast(`${event.data.playersReady}/${event.data.totalPlayers} players ready`, { icon: '✓' });
+        break;
+
+      case 'ALL_PAYMENTS_CONFIRMED':
+        console.log('📊 [ALL_PAYMENTS_CONFIRMED] All payments confirmed');
+        // Clear pending payment
+        useGameStore.setState({ pendingPayment: null });
+        toast.success('All players ready! Match starting...', { duration: 3000 });
+        break;
+
+      case 'MATCH_CANCELLED':
+        console.log('📊 [MATCH_CANCELLED] Match cancelled:', event.data.reason);
+        // Clear pending payment
+        useGameStore.setState({ pendingPayment: null });
+        toast.error(event.data.reason, { duration: 5000 });
+        break;
+
       case 'ROUND_START':
         console.log('📊 [ROUND_START] Updating state:', {
           round: event.data.round,
@@ -215,6 +250,27 @@ export function useSocket() {
         if (event.data.type === 'DEATH') {
           toast.error(`${event.data.source} was defeated!`);
         }
+        break;
+
+      case 'COMBAT_BOARDS':
+        console.log('📊 [COMBAT_BOARDS] Received combat boards:', {
+          playerUnitsRemaining: event.data.playerUnitsRemaining,
+          opponentUnitsRemaining: event.data.opponentUnitsRemaining
+        });
+        updateFromServer({
+          combatInitialBoards: {
+            player: event.data.initialBoard1,
+            opponent: event.data.initialBoard2,
+          },
+          combatFinalBoards: {
+            player: event.data.finalBoard1,
+            opponent: event.data.finalBoard2,
+          },
+          combatUnitsRemaining: {
+            player: event.data.playerUnitsRemaining,
+            opponent: event.data.opponentUnitsRemaining,
+          }
+        });
         break;
 
       case 'ROUND_END':
@@ -325,6 +381,10 @@ export function useSocket() {
     return emit('DEV_FORCE_END_MATCH');
   }, [emit]);
 
+  const submitPayment = useCallback((blockchainMatchId: number, transactionHash: string) => {
+    return emit('SUBMIT_PAYMENT', { blockchainMatchId, transactionHash });
+  }, [emit]);
+
   return {
     isConnected,
     error,
@@ -336,6 +396,7 @@ export function useSocket() {
     // Specific emitters
     joinQueue,
     joinBotMatch,
+    submitPayment,
     buyCard,
     sellCard,
     placeCard,

@@ -89,6 +89,10 @@ io.on('connection', (socket) => {
         handleJoinBotMatch(socket, event.data.entryFee, event.data.transactionHash);
         break;
 
+      case 'SUBMIT_PAYMENT':
+        handleSubmitPayment(socket, event.data.blockchainMatchId, event.data.transactionHash);
+        break;
+
       case 'BUY_CARD':
         handleBuyCard(socket, event.data.cardIndex);
         break;
@@ -160,6 +164,30 @@ async function handleJoinQueue(socket: any, entryFee: number, transactionHash?: 
     socket.emit('error', {
       type: 'QUEUE_JOIN_FAILED',
       message: `Failed to join queue: ${error.message}`,
+    });
+  }
+}
+
+async function handleSubmitPayment(socket: any, blockchainMatchId: number, transactionHash: string) {
+  const walletAddress = socket.walletAddress;
+  logger.action('Player submitting payment', {
+    wallet: walletAddress,
+    socketId: socket.id,
+    blockchainMatchId,
+    transactionHash
+  });
+
+  try {
+    await matchMaking.submitPayment(socket.id, blockchainMatchId, transactionHash);
+  } catch (error: any) {
+    logger.error('Failed to submit payment', {
+      wallet: walletAddress,
+      socketId: socket.id,
+      error: error.message
+    });
+    socket.emit('error', {
+      type: 'PAYMENT_SUBMISSION_FAILED',
+      message: `Failed to submit payment: ${error.message}`,
     });
   }
 }

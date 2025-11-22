@@ -198,13 +198,15 @@ export class GameRoom {
       const socketId = this.getSocketFromWallet(walletAddress);
       if (socketId) {
         this.stateSync.syncShopUpdate(socketId, shop);
+        // Sync updated player stats (gold changed)
+        this.stateSync.syncPlayerStats(socketId, player);
       }
     });
 
-    // Broadcast round start with timer - need socket IDs for broadcast
+    // Broadcast round start with timer - use wallet addresses for room-based broadcast
     const timeRemaining = this.roundManager.getTimeRemaining();
-    const activeSocketIds = this.getActivePlayerSocketIds();
-    this.stateSync.syncRoundStart(activeSocketIds, round, 'PLANNING', timeRemaining);
+    const activeWallets = this.getActivePlayerIds();
+    this.stateSync.syncRoundStart(activeWallets, round, 'PLANNING', timeRemaining);
 
     // Reset ready status
     this.playerReadyStatus.forEach((_, walletAddress) => {
@@ -213,7 +215,10 @@ export class GameRoom {
 
     // Execute bot turns
     if (this.isBotMatch) {
-      this.executeBotTurns(round);
+      this.executeBotTurns(round).then(() => {
+        // After all bot turns complete, sync opponent states to human players
+        this.syncOpponentStatesToHumanPlayers();
+      });
     }
   }
 
@@ -239,7 +244,8 @@ export class GameRoom {
       const playerState = {
         ...player,
         bench: this.playerBenches.get(botWallet) || [],
-        board: this.getAllUnitsFromBoard(this.playerBoards.get(botWallet)!)
+        board: this.getAllUnitsFromBoard(this.playerBoards.get(botWallet)!),
+        shop: shop.cards
       };
 
       // Execute bot turn with action callbacks
@@ -282,6 +288,10 @@ export class GameRoom {
         }
         break;
     }
+
+    // After bot action, sync opponent states to all human players
+    // This ensures human players see bot state changes in real-time
+    this.syncOpponentStatesToHumanPlayers(botWallet);
   }
 
   /**
@@ -295,6 +305,11 @@ export class GameRoom {
     const pairings = RoundManager.pairOpponents(activeWallets, round);
 
     console.log(`📡 Running combat for ${activeWallets.length} players`);
+
+    // Broadcast phase change to ALL players BEFORE running individual combats
+    const timeRemaining = this.roundManager.getTimeRemaining();
+    this.stateSync.syncPhaseChange(activeWallets, 'COMBAT', round, timeRemaining);
+    console.log(`📡 Broadcast COMBAT phase to ${activeWallets.length} players`);
 
     // Run combat for each pairing (COMBAT_START event sent in runCombat)
     pairings.forEach((opponentWallet, playerWallet) => {
@@ -417,11 +432,10 @@ export class GameRoom {
   private handleTransitionPhase(round: number): void {
     console.log(`Starting transition phase for round ${round}`);
 
-    // Broadcast phase change to all players with timeRemaining
-    const activeSocketIds = this.getActivePlayerSocketIds();
+    // Broadcast phase change to all players with timeRemaining - use wallet addresses for room-based broadcast
     const activeWallets = this.getActivePlayerIds();
     const timeRemaining = this.roundManager.getTimeRemaining();
-    this.stateSync.syncPhaseChange(activeSocketIds, 'TRANSITION', round, timeRemaining);
+    this.stateSync.syncPhaseChange(activeWallets, 'TRANSITION', round, timeRemaining);
 
     // Check for match end
     if (activeWallets.length <= 1) {
@@ -702,6 +716,9 @@ export class GameRoom {
     this.playerShops.set(walletAddress, newShop);
     this.stateSync.syncShopUpdate(socketId, newShop);
 
+    // Sync updated player stats (gold changed)
+    this.stateSync.syncPlayerStats(socketId, player);
+
     return true;
   }
 
@@ -743,7 +760,12 @@ export class GameRoom {
     if (result.leveledUp) {
       player.level = result.newLevel;
       this.stateSync.syncSuccess(socketId, `Level up! Now level ${result.newLevel}`);
+    } else {
+      this.stateSync.syncSuccess(socketId, `Bought XP (${result.newXP}/${this.economyManager.getXPForNextLevel(player.level)} XP)`);
     }
+
+    // Sync updated player stats
+    this.stateSync.syncPlayerStats(socketId, player);
 
     return true;
   }
@@ -962,6 +984,60 @@ export class GameRoom {
   }
 
   /**
+   * Get socket IDs for all active human players (excluding bots)
+   */
+  private getActiveHumanPlayerSocketIds(): string[] {
+    const activeWallets = this.getActivePlayerIds();
+    const socketIds: string[] = [];
+
+    for (const wallet of activeWallets) {
+      // Skip bots
+      if (this.botPlayers.has(wallet)) {
+        continue;
+      }
+      const socketId = this.getSocketFromWallet(wallet);
+      if (socketId) {
+        socketIds.push(socketId);
+      }
+    }
+
+    return socketIds;
+  }
+
+  /**
+   * Sync opponent state updates to all human players after bot actions
+   */
+  private syncOpponentStatesToHumanPlayers(changedPlayerWallet?: string): void {
+    const humanSocketIds = this.getActiveHumanPlayerSocketIds();
+    if (humanSocketIds.length === 0) return;
+
+    // Build updated opponents list for each human player
+    for (const humanSocketId of humanSocketIds) {
+      const humanWallet = this.getWalletFromSocket(humanSocketId);
+      if (!humanWallet) continue;
+
+      const opponents = Array.from(this.players.values())
+        .filter(p => p.id !== humanWallet && !this.eliminatedPlayers.has(p.id))
+        .map(opponentPlayer => {
+          const opponentWallet = opponentPlayer.id;
+          const opponentBoard = this.playerBoards.get(opponentWallet);
+          const opponentUnits = opponentBoard ? this.getAllUnitsFromBoard(opponentBoard) : [];
+          
+          return this.stateSync.createOpponentState(
+            opponentPlayer,
+            opponentBoard || { top: [null, null, null, null], bottom: [null, null, null, null] },
+            opponentUnits
+          );
+        });
+
+      // Sync updated opponents list
+      this.io.to(humanSocketId).emit('state_sync', {
+        opponents: opponents,
+      });
+    }
+  }
+
+  /**
    * Get all units from a board
    */
   private getAllUnitsFromBoard(board: Board): Unit[] {
@@ -1111,7 +1187,7 @@ export class GameRoom {
       board: this.playerBoards.get(walletAddress) || { top: [null, null, null, null], bottom: [null, null, null, null] },
       bench: this.playerBenches.get(walletAddress) || [],
       shop: this.playerShops.get(walletAddress) || { cards: [], rerollCost: REROLL_COST, freeRerolls: 0 },
-      items: [], // TODO: Add items when implemented
+      readyForCombat: this.playerReadyStatus.get(walletAddress) || false,
     };
 
     // Send MATCH_FOUND event to establish they're in this match

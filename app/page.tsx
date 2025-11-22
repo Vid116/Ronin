@@ -53,10 +53,10 @@ export default function Home() {
             <h3 className="text-lg text-gray-400 mb-4">Choose Your Stakes</h3>
             <div className="grid grid-cols-4 gap-4">
               {[
-                { value: 0, label: 'Free', color: 'bg-gray-600', icon: '🎮' },
-                { value: 2, label: '2 RON', color: 'bg-green-600', icon: '💰' },
-                { value: 10, label: '10 RON', color: 'bg-blue-600', icon: '💎' },
-                { value: 50, label: '50 RON', color: 'bg-purple-600', icon: '👑' },
+                { value: 0, label: 'Free', color: 'bg-gray-600', icon: '🎮', prize: 'Glory' },
+                { value: 0.001, label: '0.001 RON', color: 'bg-green-600', icon: '💰', prize: '0.0043' },
+                { value: 0.005, label: '0.005 RON', color: 'bg-blue-600', icon: '💎', prize: '0.0216' },
+                { value: 0.01, label: '0.01 RON', color: 'bg-purple-600', icon: '👑', prize: '0.0432' },
               ].map((stake) => (
                 <button
                   key={stake.value}
@@ -70,12 +70,10 @@ export default function Home() {
                   `}
                 >
                   <div className="text-2xl mb-1">{stake.icon}</div>
-                  <div>{stake.label}</div>
-                  {stake.value > 0 && (
-                    <div className="text-xs mt-1 text-gray-300">
-                      Win: {stake.value * 4} RON
-                    </div>
-                  )}
+                  <div className="text-sm">{stake.label}</div>
+                  <div className="text-xs mt-1 text-gray-300">
+                    {stake.value > 0 ? `Win: ${stake.prize} RON` : stake.prize}
+                  </div>
                 </button>
               ))}
             </div>

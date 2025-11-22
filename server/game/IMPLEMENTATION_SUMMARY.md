@@ -84,7 +84,7 @@ Complete auto-battler game server implementation with 2,327 lines of TypeScript 
 - [x] Lose streak compensation (1-5 gold)
 - [x] XP purchasing (4 gold = 4 XP)
 - [x] Level-up system (levels 1-10)
-- [x] Board size = player level
+- [x] Board size = fixed 8 units (all positions available from start)
 - [x] Sell value calculation
 
 ### 4. Round Management

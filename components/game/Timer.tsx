@@ -54,10 +54,17 @@ export function Timer({ timeRemaining, phase }: TimerProps) {
       progressColor: 'bg-yellow-500',
       maxTime: PHASE_DURATIONS_SECONDS.TRANSITION,
     },
-  };
+  } as const;
 
-  const config = phaseConfig[phase];
+  // Defensive: Handle undefined/invalid phase by defaulting to PLANNING
+  const safePhase = phase && phase in phaseConfig ? phase : 'PLANNING';
+  const config = phaseConfig[safePhase];
   const progressPercentage = (timeRemaining / config.maxTime) * 100;
+
+  // Log warning if phase was invalid
+  if (phase !== safePhase) {
+    console.warn('⚠️ [TIMER] Invalid phase received:', phase, '- defaulting to PLANNING');
+  }
 
   return (
     <div

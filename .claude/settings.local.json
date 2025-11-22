@@ -12,7 +12,8 @@
       "Bash(cat:*)",
       "Bash(node -e:*)",
       "Bash(dir \"C:\\Ronin\")",
-      "Bash(npm test:*)"
+      "Bash(npm test:*)",
+      "Bash(git add:*)"
     ],
     "deny": [],
     "ask": []

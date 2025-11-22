@@ -33,6 +33,9 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
   const board = useGameStore((state) => state.board);
   const bench = useGameStore((state) => state.bench);
   const combatLog = useGameStore((state) => state.combatLog);
+  const combatInitialBoards = useGameStore((state) => state.combatInitialBoards);
+  const combatFinalBoards = useGameStore((state) => state.combatFinalBoards);
+  const combatUnitsRemaining = useGameStore((state) => state.combatUnitsRemaining);
 
   // Get action methods from socket hook (server-authoritative)
   const buyCard = socket.buyCard;
@@ -53,6 +56,26 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
 
   // Selection state for click-to-place
   const [selectedCard, setSelectedCard] = useState<{ unit: Unit; source: 'bench' | 'board'; position?: number } | null>(null);
+
+  // Combat visualization toggle and auto-control
+  const [showFinalCombatState, setShowFinalCombatState] = useState(false);
+
+  // Auto-toggle combat views based on timer
+  useEffect(() => {
+    if (phase !== 'COMBAT' || !combatInitialBoards) {
+      setShowFinalCombatState(false);
+      return;
+    }
+
+    // Combat phase timeline (assuming 15s total):
+    // 0-10s (timeRemaining 15-6): Show START state
+    // 5-0s (timeRemaining 5-0): Show END state
+    if (timeRemaining > 5) {
+      setShowFinalCombatState(false); // Show combat start
+    } else {
+      setShowFinalCombatState(true); // Show combat end
+    }
+  }, [phase, timeRemaining, combatInitialBoards]);
 
   // REMOVED: Aggressive redirect check that was causing socket disconnect loop
   // The socket has its own reconnection logic and the server will handle invalid matches
@@ -227,9 +250,56 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
                     initial={{ opacity: 0, y: -20 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -20 }}
+                    className="space-y-2"
                   >
+                    {/* Combat State Toggle */}
+                    {combatInitialBoards && (
+                      <div className="flex items-center justify-center gap-3 mb-2">
+                        <button
+                          onClick={() => setShowFinalCombatState(false)}
+                          disabled={timeRemaining > 5}
+                          className={`px-4 py-2 rounded-lg font-semibold transition-all ${
+                            !showFinalCombatState
+                              ? 'bg-blue-600 text-white shadow-lg ring-2 ring-blue-400'
+                              : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
+                          } ${timeRemaining > 5 ? 'cursor-not-allowed opacity-75' : 'cursor-pointer'}`}
+                        >
+                          Combat Start {timeRemaining > 5 ? `(${Math.ceil(timeRemaining - 5)}s)` : ''}
+                        </button>
+                        <button
+                          onClick={() => setShowFinalCombatState(true)}
+                          disabled={timeRemaining > 5}
+                          className={`px-4 py-2 rounded-lg font-semibold transition-all ${
+                            showFinalCombatState
+                              ? 'bg-red-600 text-white shadow-lg ring-2 ring-red-400'
+                              : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
+                          } ${timeRemaining > 5 ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
+                        >
+                          Combat End {timeRemaining <= 5 ? `(${timeRemaining}s)` : ''}
+                        </button>
+                        {combatUnitsRemaining && (
+                          <div className="ml-4 text-sm text-gray-400">
+                            Remaining:
+                            <span className="ml-2 text-blue-400 font-bold">
+                              You: {combatUnitsRemaining.player}
+                            </span>
+                            <span className="mx-2">vs</span>
+                            <span className="text-red-400 font-bold">
+                              Opponent: {combatUnitsRemaining.opponent}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     <Board
-                      board={board} // TODO: Should be opponent's board from server
+                      board={
+                        combatInitialBoards
+                          ? showFinalCombatState
+                            ? combatFinalBoards?.opponent || combatInitialBoards.opponent
+                            : combatInitialBoards.opponent
+                          : board
+                      }
                       isPlayerBoard={false}
                       isInteractive={false}
                     />
@@ -243,7 +313,13 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
                 animate={{ opacity: 1, y: 0 }}
               >
                 <Board
-                  board={board}
+                  board={
+                    phase === 'COMBAT' && combatInitialBoards
+                      ? showFinalCombatState
+                        ? combatFinalBoards?.player || combatInitialBoards.player
+                        : combatInitialBoards.player
+                      : board
+                  }
                   isPlayerBoard={true}
                   onCardDrop={handleCardDrop}
                   onCardClick={handleBoardClick}

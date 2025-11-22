@@ -185,7 +185,7 @@ export class EconomyManager {
    * Get max board size for a player level
    */
   getMaxBoardSize(level: number): number {
-    return level; // Max units = player level
+    return 8; // Fixed board size - all 8 positions available from start
   }
 
   /**

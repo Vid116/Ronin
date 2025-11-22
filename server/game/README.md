@@ -118,8 +118,8 @@ Level 10: 5% T1, 10% T2, 20% T3, 35% T4, 25% T5, 5% T6
   - Level 10: 140 XP (max)
 
 **Board Size:**
-- Max units on board = player level
-- Level 1 = 1 unit, Level 10 = 10 units
+- Fixed at 8 units (all board positions available from start)
+- Independent of player level
 
 **Key Methods:**
 - `calculateRoundIncome(player)` - Calculate total gold income

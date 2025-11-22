@@ -18,10 +18,11 @@ export default function LobbyPage() {
   const { address, isConnected, balance, socket } = useGame();
   const { queue, joinQueue, leaveQueue, updateQueueCount } = usePlayerStore();
   const matchId = useGameStore((state) => state.matchId);
-  const { createMatch, isWriting, isConfirming, isConfirmed, txHash } = useContract();
+  const pendingPayment = useGameStore((state) => state.pendingPayment);
+  const { joinMatch, isWriting, isConfirming, isConfirmed, txHash } = useContract();
 
   const [timeInQueue, setTimeInQueue] = useState(0);
-  const [pendingTx, setPendingTx] = useState(false);
+  const [paymentInProgress, setPaymentInProgress] = useState(false);
 
   // Redirect if not connected
   useEffect(() => {
@@ -61,21 +62,20 @@ export default function LobbyPage() {
     }
   }, [queue.isQueuing, queue.playersInQueue, updateQueueCount]);
 
-  // Handle transaction confirmation
+  // Handle payment transaction confirmation
   useEffect(() => {
-    if (isConfirmed && pendingTx && txHash) {
-      setPendingTx(false);
+    if (isConfirmed && paymentInProgress && txHash && pendingPayment) {
+      setPaymentInProgress(false);
 
-      // Join queue via socket with transaction hash
-      const success = socket.joinQueue(stake, txHash);
+      // Submit payment to server
+      const success = socket.submitPayment(pendingPayment.blockchainMatchId, txHash);
       if (success) {
-        joinQueue(stake);
-        toast.success('Joined queue! Searching for opponents...');
+        toast.success('Payment submitted! Waiting for other players...');
       } else {
-        toast.error('Failed to join queue');
+        toast.error('Failed to submit payment');
       }
     }
-  }, [isConfirmed, pendingTx, txHash, socket, stake, joinQueue]);
+  }, [isConfirmed, paymentInProgress, txHash, socket, pendingPayment]);
 
   const handleJoinQueue = async () => {
     if (!socket.isConnected) {
@@ -131,13 +131,38 @@ export default function LobbyPage() {
     }
   };
 
-  const rewardMap: Record<number, { first: string; second: string; third: string }> = {
-    0: { first: 'Glory', second: 'Honor', third: 'Experience' },
-    2: { first: '8 RON', second: '2 RON', third: '0 RON' },
-    10: { first: '40 RON', second: '10 RON', third: '5 RON' },
-    50: { first: '180 RON', second: '75 RON', third: '25 RON' },
+  const handlePayEntry = async () => {
+    if (!pendingPayment) return;
+
+    if (balance && parseFloat(balance) < pendingPayment.entryFee) {
+      toast.error(`Insufficient balance. Need ${pendingPayment.entryFee} RON`);
+      return;
+    }
+
+    try {
+      setPaymentInProgress(true);
+      await joinMatch(pendingPayment.blockchainMatchId, pendingPayment.entryFee);
+    } catch (error) {
+      setPaymentInProgress(false);
+      console.error('Payment failed:', error);
+    }
   };
-  const rewards = rewardMap[stake];
+
+  // Calculate prizes based on contract prize distribution
+  // 72% first, 18% second, 10% third (after 8.3% platform fee)
+  const calculatePrizes = (entryFee: number) => {
+    if (entryFee === 0) {
+      return { first: 'Glory', second: 'Honor', third: 'Experience' };
+    }
+    const prizePool = entryFee * 6;
+    const afterFee = prizePool * 0.917; // 100% - 8.3% platform fee
+    return {
+      first: `${(afterFee * 0.72).toFixed(4)} RON`,
+      second: `${(afterFee * 0.18).toFixed(4)} RON`,
+      third: `${(afterFee * 0.10).toFixed(4)} RON`,
+    };
+  };
+  const rewards = calculatePrizes(stake);
 
   if (!isConnected) {
     return null; // Will redirect
@@ -329,16 +354,16 @@ export default function LobbyPage() {
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
                   onClick={handleJoinQueue}
-                  disabled={!socket.isConnected || isWriting || isConfirming || pendingTx}
+                  disabled={!socket.isConnected || isWriting || isConfirming || paymentInProgress}
                   className={`
                     flex-1 py-4 rounded-lg font-bold text-xl text-white transition-all
-                    ${socket.isConnected && !isWriting && !isConfirming && !pendingTx
+                    ${socket.isConnected && !isWriting && !isConfirming && !paymentInProgress
                       ? 'bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700'
                       : 'bg-gray-700 cursor-not-allowed'
                     }
                   `}
                 >
-                  {pendingTx || isWriting || isConfirming
+                  {paymentInProgress || isWriting || isConfirming
                     ? 'Processing Transaction...'
                     : socket.isConnected
                       ? 'Find Match'
@@ -371,16 +396,16 @@ export default function LobbyPage() {
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
                     onClick={handleJoinBotMatch}
-                    disabled={!socket.isConnected || isWriting || isConfirming || pendingTx}
+                    disabled={!socket.isConnected || isWriting || isConfirming || paymentInProgress}
                     className={`
                       w-full py-3 rounded-lg font-bold text-lg text-white transition-all
-                      ${socket.isConnected && !isWriting && !isConfirming && !pendingTx
+                      ${socket.isConnected && !isWriting && !isConfirming && !paymentInProgress
                         ? 'bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700'
                         : 'bg-gray-700 cursor-not-allowed'
                       }
                     `}
                   >
-                    {pendingTx || isWriting || isConfirming
+                    {paymentInProgress || isWriting || isConfirming
                       ? 'Processing Transaction...'
                       : socket.isConnected
                         ? 'Start Bot Match'
@@ -422,6 +447,63 @@ export default function LobbyPage() {
                   </button>
                 </motion.div>
               )}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Payment Modal */}
+        <AnimatePresence>
+          {pendingPayment && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50"
+            >
+              <motion.div
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.9, opacity: 0 }}
+                className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-xl p-8 max-w-md w-full mx-4 border-2 border-yellow-500 shadow-2xl"
+              >
+                <h2 className="text-3xl font-bold text-yellow-400 mb-4 text-center">
+                  Match Found!
+                </h2>
+                <p className="text-gray-300 mb-6 text-center">
+                  Pay entry fee to join the match
+                </p>
+
+                <div className="bg-gray-700 rounded-lg p-6 mb-6">
+                  <div className="flex justify-between items-center mb-4">
+                    <span className="text-gray-400">Entry Fee:</span>
+                    <span className="text-2xl font-bold text-yellow-400">{pendingPayment.entryFee} RON</span>
+                  </div>
+                  <div className="flex justify-between items-center mb-4">
+                    <span className="text-gray-400">Match ID:</span>
+                    <span className="text-white font-mono">#{pendingPayment.blockchainMatchId}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-400">Time Remaining:</span>
+                    <span className="text-red-400 font-bold">
+                      {Math.max(0, Math.floor((pendingPayment.deadline - Date.now()) / 1000))}s
+                    </span>
+                  </div>
+                </div>
+
+                <button
+                  onClick={handlePayEntry}
+                  disabled={isWriting || isConfirming || paymentInProgress}
+                  className="w-full bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 disabled:from-gray-600 disabled:to-gray-700 text-white px-6 py-4 rounded-lg text-lg font-bold transition-all shadow-lg mb-3"
+                >
+                  {isWriting && 'Waiting for wallet...'}
+                  {isConfirming && 'Confirming transaction...'}
+                  {!isWriting && !isConfirming && `Pay ${pendingPayment.entryFee} RON`}
+                </button>
+
+                <p className="text-xs text-gray-400 text-center">
+                  All players must pay within the time limit for the match to start
+                </p>
+              </motion.div>
             </motion.div>
           )}
         </AnimatePresence>
