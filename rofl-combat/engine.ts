@@ -18,6 +18,17 @@ import type {
   CombatUnit,
   CombatEvent,
 } from './types';
+import {
+  validateCombatInput,
+  sanitizeCombatInput,
+  formatValidationResult,
+} from './validator';
+
+/**
+ * Combat configuration constants
+ */
+const MAX_ATTACKS_PER_UNIT = 100; // Prevents infinite loops
+const MAX_TOTAL_ATTACKS = MAX_ATTACKS_PER_UNIT * 16; // 100 attacks * 16 max units
 
 /**
  * Internal unit state during combat
@@ -28,6 +39,7 @@ interface ActiveUnit extends CombatUnit {
   currentHealth: number;
   currentAttack: number;
   isDead: boolean;
+  attackCount: number; // Track attacks for max limit
 }
 
 /**
@@ -39,6 +51,8 @@ interface InternalState {
   rngIndex: number;
   step: number;
   events: CombatEvent[];
+  totalAttacks: number; // Track total attacks for max limit
+  hitMaxLimit: boolean; // Flag if max limit was reached
 }
 
 /**
@@ -80,6 +94,7 @@ function initializeBoard(
         currentHealth: baseHealth,
         currentAttack: baseAttack,
         isDead: false,
+        attackCount: 0, // Initialize attack counter
       });
     }
   });
@@ -181,6 +196,22 @@ function processAttack(
 
   const target = enemies[0]; // Simple: attack first alive enemy
 
+  // Increment attack counters
+  attacker.attackCount++;
+  state.totalAttacks++;
+
+  // Check per-unit limit
+  if (attacker.attackCount > MAX_ATTACKS_PER_UNIT) {
+    state.hitMaxLimit = true;
+    return;
+  }
+
+  // Check total attack limit
+  if (state.totalAttacks > MAX_TOTAL_ATTACKS) {
+    state.hitMaxLimit = true;
+    return;
+  }
+
   // Calculate damage
   const damage = calculateDamage(attacker, target, seed, rngIndex);
 
@@ -216,95 +247,161 @@ function processAttack(
 export function simulateCombat(input: CombatInput): CombatOutput {
   const startTime = Date.now();
 
-  // Initialize state
-  const state: InternalState = {
-    board1: initializeBoard(input.board1, 1),
-    board2: initializeBoard(input.board2, 2),
-    rngIndex: 0,
-    step: 0,
-    events: [],
-  };
+  try {
+    // Validate input
+    const validation = validateCombatInput(input);
+    if (!validation.valid) {
+      console.error('Combat input validation failed:');
+      console.error(formatValidationResult(validation));
 
-  const rngIndex = { value: 0 }; // Mutable reference for RNG counter
-
-  // Process start-of-combat abilities
-  processStartAbilities(state, input.seed, rngIndex);
-
-  // Main combat loop (position 0-7)
-  for (let position = 0; position < 8; position++) {
-    const unit1 = state.board1.get(position);
-    const unit2 = state.board2.get(position);
-
-    // Both units attack if alive
-    if (unit1 && !unit1.isDead) {
-      processAttack(unit1, state.board2, state, input.seed, rngIndex);
+      // Return draw result on validation failure
+      return createErrorResult(input, 'Validation failed', startTime);
     }
 
-    if (unit2 && !unit2.isDead) {
-      processAttack(unit2, state.board1, state, input.seed, rngIndex);
+    // Sanitize input (fix minor issues)
+    const sanitizedInput = sanitizeCombatInput(input);
+
+    // Initialize state
+    const state: InternalState = {
+      board1: initializeBoard(sanitizedInput.board1, 1),
+      board2: initializeBoard(sanitizedInput.board2, 2),
+      rngIndex: 0,
+      step: 0,
+      events: [],
+      totalAttacks: 0,
+      hitMaxLimit: false,
+    };
+
+    const rngIndex = { value: 0 }; // Mutable reference for RNG counter
+
+    // Process start-of-combat abilities
+    processStartAbilities(state, sanitizedInput.seed, rngIndex);
+
+    // Main combat loop (position 0-7)
+    for (let position = 0; position < 8; position++) {
+      const unit1 = state.board1.get(position);
+      const unit2 = state.board2.get(position);
+
+      // Both units attack if alive
+      if (unit1 && !unit1.isDead) {
+        processAttack(unit1, state.board2, state, sanitizedInput.seed, rngIndex);
+        if (state.hitMaxLimit) break;
+      }
+
+      if (unit2 && !unit2.isDead) {
+        processAttack(unit2, state.board1, state, sanitizedInput.seed, rngIndex);
+        if (state.hitMaxLimit) break;
+      }
+
+      // Early exit if one side eliminated
+      if (getAlive(state.board1).length === 0 || getAlive(state.board2).length === 0) {
+        break;
+      }
     }
 
-    // Early exit if one side eliminated
-    if (getAlive(state.board1).length === 0 || getAlive(state.board2).length === 0) {
-      break;
+    // Check if max limit was hit
+    if (state.hitMaxLimit) {
+      console.warn(`Combat hit max attack limit (${MAX_TOTAL_ATTACKS} total attacks)`);
+      state.events.push({
+        step: state.step++,
+        position: -1,
+        type: 'BUFF',
+        sourceUnit: 'system',
+        description: 'Combat ended due to max attack limit',
+      });
     }
+
+    // Determine winner
+    const alive1 = getAlive(state.board1);
+    const alive2 = getAlive(state.board2);
+
+    let winner: 'player1' | 'player2' | 'draw';
+    let damageToLoser = 0;
+
+    if (alive1.length > 0 && alive2.length === 0) {
+      winner = 'player1';
+      // Damage based on surviving units + tier
+      damageToLoser = alive1.reduce((sum, u) => sum + 1 + u.tier, 0);
+    } else if (alive2.length > 0 && alive1.length === 0) {
+      winner = 'player2';
+      damageToLoser = alive2.reduce((sum, u) => sum + 1 + u.tier, 0);
+    } else {
+      winner = 'draw';
+      damageToLoser = 1;
+    }
+
+    // Create final boards
+    const finalBoard1: CombatBoard = {
+      units: Array.from({ length: 8 }, (_, i) => {
+        const unit = state.board1.get(i);
+        return unit && !unit.isDead ? unit : null;
+      }),
+    };
+
+    const finalBoard2: CombatBoard = {
+      units: Array.from({ length: 8 }, (_, i) => {
+        const unit = state.board2.get(i);
+        return unit && !unit.isDead ? unit : null;
+      }),
+    };
+
+    // Create result hash (for verification)
+    const resultHash = hashCombatResult(
+      winner,
+      damageToLoser,
+      sanitizedInput.seed,
+      rngIndex.value,
+      state.step
+    );
+
+    const executionTimeMs = Date.now() - startTime;
+
+    return {
+      winner,
+      damageToLoser,
+      finalBoard1,
+      finalBoard2,
+      seed: sanitizedInput.seed,
+      rngCallCount: rngIndex.value,
+      totalSteps: state.step,
+      events: state.events,
+      resultHash,
+      executionTimeMs,
+    };
+  } catch (error) {
+    // Catch any unexpected errors
+    console.error('Combat simulation error:', error);
+    return createErrorResult(input, `Unexpected error: ${error}`, startTime);
   }
+}
 
-  // Determine winner
-  const alive1 = getAlive(state.board1);
-  const alive2 = getAlive(state.board2);
-
-  let winner: 'player1' | 'player2' | 'draw';
-  let damageToLoser = 0;
-
-  if (alive1.length > 0 && alive2.length === 0) {
-    winner = 'player1';
-    // Damage based on surviving units + tier
-    damageToLoser = alive1.reduce((sum, u) => sum + 1 + u.tier, 0);
-  } else if (alive2.length > 0 && alive1.length === 0) {
-    winner = 'player2';
-    damageToLoser = alive2.reduce((sum, u) => sum + 1 + u.tier, 0);
-  } else {
-    winner = 'draw';
-    damageToLoser = 1;
-  }
-
-  // Create final boards
-  const finalBoard1: CombatBoard = {
-    units: Array.from({ length: 8 }, (_, i) => {
-      const unit = state.board1.get(i);
-      return unit && !unit.isDead ? unit : null;
-    }),
-  };
-
-  const finalBoard2: CombatBoard = {
-    units: Array.from({ length: 8 }, (_, i) => {
-      const unit = state.board2.get(i);
-      return unit && !unit.isDead ? unit : null;
-    }),
-  };
-
-  // Create result hash (for verification)
-  const resultHash = hashCombatResult(
-    winner,
-    damageToLoser,
-    input.seed,
-    rngIndex.value,
-    state.step
-  );
-
+/**
+ * Create error result (safe fallback for validation/runtime errors)
+ */
+function createErrorResult(
+  input: CombatInput,
+  errorMessage: string,
+  startTime: number
+): CombatOutput {
   const executionTimeMs = Date.now() - startTime;
 
+  // Return draw with minimal damage
   return {
-    winner,
-    damageToLoser,
-    finalBoard1,
-    finalBoard2,
-    seed: input.seed,
-    rngCallCount: rngIndex.value,
-    totalSteps: state.step,
-    events: state.events,
-    resultHash,
+    winner: 'draw',
+    damageToLoser: 1,
+    finalBoard1: input.board1 || { units: Array(8).fill(null) },
+    finalBoard2: input.board2 || { units: Array(8).fill(null) },
+    seed: input.seed || 0,
+    rngCallCount: 0,
+    totalSteps: 0,
+    events: [{
+      step: 0,
+      position: -1,
+      type: 'BUFF',
+      sourceUnit: 'system',
+      description: `Combat error: ${errorMessage}`,
+    }],
+    resultHash: 'error',
     executionTimeMs,
   };
 }

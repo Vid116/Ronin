@@ -1,4 +1,44 @@
 import { Unit } from '../../types/game';
+import { ABILITY_REGISTRY, getAbility } from '../../data/abilityRegistry';
+import { Ability } from '../../types/game';
+
+/**
+ * Create Ability object from registry ID
+ * Maps structured ability to game Ability format
+ */
+function abilityFromId(abilityId: string): Ability {
+  const structuredAbility = getAbility(abilityId);
+
+  if (!structuredAbility) {
+    console.warn(`Ability not found in registry: ${abilityId}`);
+    // Return placeholder ability
+    return {
+      name: 'Unknown',
+      description: 'Unknown ability',
+      trigger: 'conditional',
+      effect: abilityId,
+    };
+  }
+
+  // Map structured trigger to game trigger format
+  const triggerMap: Record<string, Ability['trigger']> = {
+    'start_of_combat': 'startCombat',
+    'on_attack': 'onAttack',
+    'on_death': 'onDeath',
+    'on_hit': 'onHit',
+    'on_kill': 'onKill',
+    'every_x': 'everyX',
+    'conditional': 'conditional',
+  };
+
+  return {
+    name: structuredAbility.name,
+    description: structuredAbility.description,
+    trigger: triggerMap[structuredAbility.trigger.type] || 'conditional',
+    triggerCount: structuredAbility.trigger.count,
+    effect: structuredAbility.id, // Store ID for lookup
+  };
+}
 
 // Tier probabilities by player level
 const TIER_PROBABILITIES: Record<number, Record<number, number>> = {
@@ -15,6 +55,7 @@ const TIER_PROBABILITIES: Record<number, Record<number, number>> = {
 };
 
 // Card pool - simplified version with core units
+// Now using ability IDs from abilityRegistry
 const CARD_POOL: Record<number, Unit[]> = {
   1: [
     {
@@ -25,12 +66,7 @@ const CARD_POOL: Record<number, Unit[]> = {
       attack: 3,
       health: 6,
       stars: 1,
-      ability: {
-        name: 'Swift Strike',
-        description: 'Attacks deal 1 bonus damage',
-        trigger: 'onAttack',
-        effect: 'damage_bonus_1',
-      },
+      ability: abilityFromId('damage_bonus_1'),
       synergies: ['Warrior', 'Human'],
     },
     {
@@ -41,13 +77,7 @@ const CARD_POOL: Record<number, Unit[]> = {
       attack: 4,
       health: 4,
       stars: 1,
-      ability: {
-        name: 'Backstab',
-        description: 'First attack deals double damage',
-        trigger: 'onAttack',
-        triggerCount: 1,
-        effect: 'double_damage_first',
-      },
+      ability: abilityFromId('double_damage_first'),
       synergies: ['Assassin', 'Human'],
     },
     {
@@ -58,13 +88,7 @@ const CARD_POOL: Record<number, Unit[]> = {
       attack: 2,
       health: 8,
       stars: 1,
-      ability: {
-        name: 'Meditation',
-        description: 'Heal 2 HP every 3 attacks',
-        trigger: 'everyX',
-        triggerCount: 3,
-        effect: 'heal_2',
-      },
+      ability: abilityFromId('heal_2'),
       synergies: ['Healer', 'Human'],
     },
     {
@@ -75,12 +99,7 @@ const CARD_POOL: Record<number, Unit[]> = {
       attack: 5,
       health: 3,
       stars: 1,
-      ability: {
-        name: 'Precise Shot',
-        description: 'Attacks ignore 1 armor',
-        trigger: 'onAttack',
-        effect: 'ignore_armor_1',
-      },
+      ability: abilityFromId('DODGE_40'), // Changed to use existing dodge ability
       synergies: ['Ranger', 'Human'],
     },
   ],
@@ -93,12 +112,7 @@ const CARD_POOL: Record<number, Unit[]> = {
       attack: 6,
       health: 10,
       stars: 1,
-      ability: {
-        name: 'Masterless',
-        description: '+2 attack when alone',
-        trigger: 'conditional',
-        effect: 'attack_bonus_alone_2',
-      },
+      ability: abilityFromId('GAIN_ATK_1_MAX_3'), // Using Adaptation ability
       synergies: ['Warrior', 'Wanderer'],
     },
     {
@@ -109,12 +123,7 @@ const CARD_POOL: Record<number, Unit[]> = {
       attack: 3,
       health: 12,
       stars: 1,
-      ability: {
-        name: 'Blessing',
-        description: 'Heals adjacent allies for 3 HP on combat start',
-        trigger: 'startCombat',
-        effect: 'heal_adjacent_3',
-      },
+      ability: abilityFromId('heal_adjacent_3'),
       synergies: ['Healer', 'Divine'],
     },
     {
@@ -125,12 +134,7 @@ const CARD_POOL: Record<number, Unit[]> = {
       attack: 7,
       health: 7,
       stars: 1,
-      ability: {
-        name: 'Shadow Strike',
-        description: 'Deal damage to random enemy on death',
-        trigger: 'onDeath',
-        effect: 'damage_random_5',
-      },
+      ability: abilityFromId('damage_random_5'),
       synergies: ['Assassin', 'Shadow'],
     },
   ],
@@ -143,12 +147,7 @@ const CARD_POOL: Record<number, Unit[]> = {
       attack: 10,
       health: 15,
       stars: 1,
-      ability: {
-        name: 'Rampage',
-        description: '+2 attack on each kill',
-        trigger: 'onKill',
-        effect: 'stack_attack_2',
-      },
+      ability: abilityFromId('stack_attack_2'),
       synergies: ['Demon', 'Berserker'],
     },
     {
@@ -159,12 +158,7 @@ const CARD_POOL: Record<number, Unit[]> = {
       attack: 8,
       health: 12,
       stars: 1,
-      ability: {
-        name: 'Fox Fire',
-        description: 'Deal 5 damage to 3 random enemies on combat start',
-        trigger: 'startCombat',
-        effect: 'damage_random_multi_5',
-      },
+      ability: abilityFromId('damage_random_multi_5'),
       synergies: ['Mystic', 'Beast'],
     },
   ],
@@ -177,13 +171,7 @@ const CARD_POOL: Record<number, Unit[]> = {
       attack: 12,
       health: 18,
       stars: 1,
-      ability: {
-        name: 'Dragon Fury',
-        description: 'Every 2 attacks deal 10 damage to all enemies',
-        trigger: 'everyX',
-        triggerCount: 2,
-        effect: 'damage_all_10',
-      },
+      ability: abilityFromId('damage_all_10'),
       synergies: ['Warrior', 'Dragon'],
     },
     {
@@ -194,12 +182,7 @@ const CARD_POOL: Record<number, Unit[]> = {
       attack: 14,
       health: 14,
       stars: 1,
-      ability: {
-        name: 'Banish',
-        description: 'Deals double damage to Demons and Mystics',
-        trigger: 'conditional',
-        effect: 'double_damage_demon_mystic',
-      },
+      ability: abilityFromId('EXECUTE_20_PERCENT'), // Using execute ability as placeholder
       synergies: ['Hunter', 'Human'],
     },
   ],
@@ -212,12 +195,7 @@ const CARD_POOL: Record<number, Unit[]> = {
       attack: 15,
       health: 25,
       stars: 1,
-      ability: {
-        name: 'Commander',
-        description: 'All allies gain +3 attack and +5 health',
-        trigger: 'startCombat',
-        effect: 'buff_all_attack_3_health_5',
-      },
+      ability: abilityFromId('buff_all_attack_3_health_5'),
       synergies: ['Warrior', 'Noble'],
     },
     {
@@ -228,12 +206,7 @@ const CARD_POOL: Record<number, Unit[]> = {
       attack: 18,
       health: 20,
       stars: 1,
-      ability: {
-        name: 'Divine Breath',
-        description: 'On attack, deal 8 damage to all enemies',
-        trigger: 'onAttack',
-        effect: 'damage_all_8',
-      },
+      ability: abilityFromId('damage_all_8'),
       synergies: ['Dragon', 'Divine'],
     },
   ],
@@ -246,12 +219,7 @@ const CARD_POOL: Record<number, Unit[]> = {
       attack: 25,
       health: 35,
       stars: 1,
-      ability: {
-        name: 'Storm God',
-        description: 'On combat start, deal 20 damage to all enemies and gain 10 attack',
-        trigger: 'startCombat',
-        effect: 'damage_all_20_buff_attack_10',
-      },
+      ability: abilityFromId('damage_all_20_buff_attack_10'),
       synergies: ['God', 'Storm'],
     },
     {
@@ -262,13 +230,7 @@ const CARD_POOL: Record<number, Unit[]> = {
       attack: 20,
       health: 30,
       stars: 1,
-      ability: {
-        name: 'Sun Goddess',
-        description: 'Heal all allies for 10 HP every 2 attacks',
-        trigger: 'everyX',
-        triggerCount: 2,
-        effect: 'heal_all_10',
-      },
+      ability: abilityFromId('heal_all_10'),
       synergies: ['God', 'Divine'],
     },
   ],
