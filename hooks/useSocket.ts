@@ -3,6 +3,7 @@ import { io, Socket } from 'socket.io-client';
 import { useAccount } from 'wagmi';
 import { ServerEvent, ClientEvent } from '@/types/game';
 import { useGameStore } from '@/store/gameStore';
+import { usePlayerStore } from '@/store/playerStore';
 import toast from 'react-hot-toast';
 
 const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3001';
@@ -52,7 +53,7 @@ export function useSocket() {
       setError(null);
       reconnectAttemptsRef.current = 0;
       console.log('Socket connected:', socket.id, 'for wallet:', connectedAddress);
-      toast.success('Connected to game server');
+      // Removed: toast.success('Connected to game server');
     });
 
     socket.on('disconnect', (reason) => {
@@ -61,11 +62,10 @@ export function useSocket() {
 
       if (reason === 'io server disconnect') {
         // Server forcibly disconnected, manual reconnection needed
+        // Only show toast for critical disconnects
         toast.error('Disconnected from server');
-      } else {
-        // Automatic reconnection will happen
-        toast('Connection lost, reconnecting...', { icon: '🔄' });
       }
+      // Removed: toast('Connection lost, reconnecting...', { icon: '🔄' });
     });
 
     socket.on('connect_error', (err) => {
@@ -80,7 +80,7 @@ export function useSocket() {
 
     socket.on('reconnect', (attemptNumber) => {
       console.log('Reconnected after', attemptNumber, 'attempts');
-      toast.success('Reconnected to game server');
+      // Removed: toast.success('Reconnected to game server');
     });
 
     socket.on('reconnect_attempt', (attemptNumber) => {
@@ -142,6 +142,18 @@ export function useSocket() {
     // Error handling
     socket.on('error', (error: any) => {
       console.error('Socket error:', error);
+
+      // Handle match creation failures
+      if (error.type === 'MATCH_CREATION_FAILED') {
+        console.error('❌ Match creation failed:', error.message, error.details);
+        toast.error(error.message, { duration: 5000 });
+
+        // Clear queue state so user can try again
+        usePlayerStore.getState().leaveQueue();
+        return;
+      }
+
+      // Handle other error types
       if (error.type === 'GAME_ERROR' || error.type === 'AUTH_ERROR') {
         toast.error(error.message);
       }
@@ -174,7 +186,7 @@ export function useSocket() {
           phase: 'PLANNING',
           timeRemaining: 30, // Set initial timer for planning phase
         });
-        toast.success('Match found! Get ready to battle!', { duration: 3000 });
+        // Removed annoying toast
         break;
 
       case 'AWAITING_PAYMENT':
@@ -192,14 +204,14 @@ export function useSocket() {
 
       case 'PAYMENT_CONFIRMED':
         console.log('📊 [PAYMENT_CONFIRMED] Payment confirmed:', event.data);
-        toast(`${event.data.playersReady}/${event.data.totalPlayers} players ready`, { icon: '✓' });
+        // Removed: toast(`${event.data.playersReady}/${event.data.totalPlayers} players ready`, { icon: '✓' });
         break;
 
       case 'ALL_PAYMENTS_CONFIRMED':
         console.log('📊 [ALL_PAYMENTS_CONFIRMED] All payments confirmed');
         // Clear pending payment
         useGameStore.setState({ pendingPayment: null });
-        toast.success('All players ready! Match starting...', { duration: 3000 });
+        // Removed: toast.success('All players ready! Match starting...', { duration: 3000 });
         break;
 
       case 'MATCH_CANCELLED':
@@ -246,10 +258,7 @@ export function useSocket() {
         console.log('📊 [COMBAT_EVENT] Adding combat event:', event.data.type);
         addCombatEvent(event.data);
 
-        // Show toast for significant events
-        if (event.data.type === 'DEATH') {
-          toast.error(`${event.data.source} was defeated!`);
-        }
+        // Removed annoying death toasts - combat log shows this info
         break;
 
       case 'COMBAT_BOARDS':
@@ -285,20 +294,16 @@ export function useSocket() {
           player: event.data.player,
         });
 
-        if (event.data.damage > 0) {
-          toast.error(`You took ${event.data.damage} damage!`, { duration: 3000 });
-        } else {
-          toast.success('Victory! No damage taken', { duration: 3000 });
-        }
+        // Removed annoying damage toasts - player can see their health bar
         break;
 
       case 'PLAYER_ELIMINATED':
-        toast.error('A player has been eliminated!', { icon: '💀' });
+        // Removed annoying elimination toast - opponent list shows this
         break;
 
       case 'MATCH_END':
         // Clear matchId to indicate match is over
-        setMatchId(null);
+        setMatchId('');
 
         // Find our placement by wallet address
         const myPlacement = event.data.placements.find(

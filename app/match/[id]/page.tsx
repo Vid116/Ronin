@@ -104,23 +104,21 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
     };
   }, [router, socket.socket]);
 
-  // Client-side timer countdown - DISABLED for debugging
-  // This was interfering with server state updates
-  // TODO: Re-enable with proper server sync after debugging
+  // Client-side timer countdown
+  // Server provides authoritative time on phase changes, client counts down locally
   useEffect(() => {
     console.log('⏱️ [TIMER] Client timer effect triggered. Phase:', phase, 'Round:', round, 'Time:', timeRemaining);
 
-    // TEMPORARILY DISABLED - Let server handle all time updates
-    // if (timeRemaining <= 0) return;
+    if (timeRemaining <= 0) return;
 
-    // const interval = setInterval(() => {
-    //   const currentTime = useGameStore.getState().timeRemaining;
-    //   if (currentTime > 0) {
-    //     useGameStore.getState().setTimeRemaining(currentTime - 1);
-    //   }
-    // }, 1000);
+    const interval = setInterval(() => {
+      const currentTime = useGameStore.getState().timeRemaining;
+      if (currentTime > 0) {
+        useGameStore.getState().setTimeRemaining(currentTime - 1);
+      }
+    }, 1000);
 
-    // return () => clearInterval(interval);
+    return () => clearInterval(interval);
   }, [phase, round, timeRemaining]);
 
   const handleCardDrop = (unit: Unit, position: number) => {
@@ -136,7 +134,7 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
     if (selectedCard) {
       // Placing selected card
       placeCard(selectedCard.unit.id, position);
-      toast.success(`Placed ${selectedCard.unit.name}`);
+      // Removed annoying toast - visual feedback is enough
       setSelectedCard(null);
     } else {
       // Selecting card from board or selling
@@ -181,47 +179,55 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
           {/* Top Bar */}
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-4">
-              <button
-                onClick={() => router.push('/')}
-                className="px-4 py-2 text-gray-400 hover:text-white transition-colors border border-gray-700 rounded-lg hover:border-gray-500"
-              >
-                Leave Match
-              </button>
-              <div className="text-white">
-                <span className="font-bold text-lg">Round {round}</span>
-                <span className="text-gray-400 ml-2">•</span>
-                <span className="text-gray-400 ml-2 text-sm">
-                  Match ID: {resolvedParams.id.slice(0, 8)}...
-                </span>
-              </div>
+              {phase !== 'COMBAT' && (
+                <button
+                  onClick={() => router.push('/')}
+                  className="px-4 py-2 text-gray-400 hover:text-white transition-colors border border-gray-700 rounded-lg hover:border-gray-500"
+                >
+                  Leave Match
+                </button>
+              )}
+              {phase !== 'COMBAT' && (
+                <div className="text-white">
+                  <span className="font-bold text-lg">Round {round}</span>
+                  <span className="text-gray-400 ml-2">•</span>
+                  <span className="text-gray-400 ml-2 text-sm">
+                    Match ID: {resolvedParams.id.slice(0, 8)}...
+                  </span>
+                </div>
+              )}
               {/* Connection status */}
-              <div className="flex items-center gap-2">
-                <div
-                  className={`w-2 h-2 rounded-full ${
-                    socket.isConnected ? 'bg-green-500' : 'bg-red-500'
-                  }`}
-                />
-                <span className="text-xs text-gray-400">
-                  {socket.isConnected ? 'Connected' : 'Disconnected'}
-                </span>
-              </div>
+              {phase !== 'COMBAT' && (
+                <div className="flex items-center gap-2">
+                  <div
+                    className={`w-2 h-2 rounded-full ${
+                      socket.isConnected ? 'bg-green-500' : 'bg-red-500'
+                    }`}
+                  />
+                  <span className="text-xs text-gray-400">
+                    {socket.isConnected ? 'Connected' : 'Disconnected'}
+                  </span>
+                </div>
+              )}
             </div>
 
-            <Timer timeRemaining={timeRemaining} phase={phase} />
+            {phase !== 'COMBAT' && (
+              <Timer timeRemaining={timeRemaining} phase={phase} />
+            )}
           </div>
 
-          {/* DEV: Force End Match Button */}
+          {/* DEV: Force End Match Button - Moved to bottom right, smaller and less intrusive */}
           {process.env.NODE_ENV === 'development' && (
             <button
               onClick={() => {
                 if (confirm('Force end this match? All players will be kicked to lobby.')) {
                   forceEndMatch();
-                  toast.success('Match force ended');
                 }
               }}
-              className="fixed top-4 right-4 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-semibold shadow-lg z-50 border border-red-500"
+              className="fixed bottom-4 right-4 bg-error/80 hover:bg-error text-white px-3 py-1.5 rounded-lg text-xs font-medium shadow-md z-50 border border-error opacity-50 hover:opacity-100 transition-opacity"
+              title="DEV: Force End Match"
             >
-              Force End Match (DEV)
+              End Match
             </button>
           )}
 
@@ -247,7 +253,7 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
             <div className={`space-y-6 ${phase === 'COMBAT' ? 'col-span-12' : 'col-span-6'}`}>
               {/* Enemy Board (if in combat) */}
               <AnimatePresence>
-                {phase === 'COMBAT' && currentOpponent && (
+                {phase === 'COMBAT' && combatInitialBoards && (
                   <motion.div
                     initial={{ opacity: 0, y: -20 }}
                     animate={{ opacity: 1, y: 0 }}
