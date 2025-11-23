@@ -89,7 +89,7 @@ export function log(level: LogLevel, message: string, context?: LogContext, data
     contextParts.push(`Socket: ${truncateSocket(context.socketId)}`);
   }
   if (context?.matchId) {
-    contextParts.push(`Match: ${context.matchId.slice(0, 12)}`);
+    contextParts.push(`Match: ${String(context.matchId).slice(0, 12)}`);
   }
 
   const contextStr = contextParts.length > 0 ? ` | ${contextParts.join(' | ')}` : '';

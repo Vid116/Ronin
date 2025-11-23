@@ -12,6 +12,7 @@ interface QueuedPlayer {
   isBot?: boolean;
   botName?: string;
   walletAddress?: string;
+  matchType?: 'standard' | 'rofl-test'; // Track match type
 }
 
 interface PendingMatch {
@@ -41,7 +42,9 @@ export class MatchMaking {
     // Get players per match from environment (default to 6 for production)
     this.PLAYERS_PER_MATCH = parseInt(process.env.PLAYERS_PER_MATCH || '6', 10);
     logger.info('MatchMaking initialized', {
-      playersPerMatch: this.PLAYERS_PER_MATCH
+      playersPerMatch: this.PLAYERS_PER_MATCH,
+      envValue: process.env.PLAYERS_PER_MATCH,
+      parsedValue: this.PLAYERS_PER_MATCH
     });
 
     // Initialize contract service if environment is configured
@@ -93,7 +96,7 @@ export class MatchMaking {
   /**
    * Add a player to the matchmaking queue
    */
-  async addToQueue(socketId: string, entryFee: number, transactionHash?: string): Promise<void> {
+  async addToQueue(socketId: string, entryFee: number, transactionHash?: string, matchType: 'standard' | 'rofl-test' = 'standard'): Promise<void> {
     // Check if player is already in queue
     const existingIndex = this.queue.findIndex(p => p.socketId === socketId);
     const walletAddress = this.socketToWallet.get(socketId);
@@ -109,81 +112,26 @@ export class MatchMaking {
     logger.action('Player joining queue', {
       wallet: walletAddress,
       socketId,
-      entryFee,
-      transactionHash
+      entryFee
     });
 
-    // For paid matches, verify transaction hash is provided
-    if (entryFee > 0 && !transactionHash) {
-      logger.error('Paid match join attempted without transaction hash', {
-        wallet: walletAddress,
-        socketId,
-        entryFee
-      });
-      this.io.to(socketId).emit('error', {
-        type: 'GAME_ERROR',
-        message: 'Transaction hash required for paid matches'
-      });
-      return;
-    }
-
-    // Verify transaction on blockchain
-    if (transactionHash && this.contractService && walletAddress) {
-      logger.action('Verifying transaction', {
-        wallet: walletAddress,
-        socketId,
-        transactionHash
-      });
-
-      try {
-        const provider = (this.contractService as any).provider;
-        const receipt = await provider.getTransactionReceipt(transactionHash);
-
-        if (!receipt) {
-          throw new Error('Transaction not found or not yet confirmed');
-        }
-
-        if (receipt.status !== 1) {
-          throw new Error('Transaction failed on blockchain');
-        }
-
-        const contractAddress = this.contractService.getContractAddress();
-        if (receipt.to?.toLowerCase() !== contractAddress.toLowerCase()) {
-          throw new Error('Transaction is not to the game contract');
-        }
-
-        logger.action('Transaction verified successfully', {
-          wallet: walletAddress,
-          socketId,
-          transactionHash
-        });
-      } catch (error: any) {
-        logger.error('Transaction verification failed', {
-          wallet: walletAddress,
-          socketId,
-          transactionHash,
-          error: error.message
-        });
-        this.io.to(socketId).emit('error', {
-          type: 'TRANSACTION_VERIFICATION_FAILED',
-          message: `Transaction verification failed: ${error.message}`,
-        });
-        return;
-      }
-    }
-
-    // Add to queue
+    // Add to queue (no transaction hash required yet for paid matches)
     this.queue.push({
       socketId,
       entryFee,
       joinedAt: Date.now(),
-      transactionHash,
       walletAddress,
+      matchType,
     });
 
     logger.state('Queue updated', {
       queueSize: this.queue.length,
-      playersNeeded: this.PLAYERS_PER_MATCH
+      playersNeeded: this.PLAYERS_PER_MATCH,
+      queueContents: this.queue.map(p => ({
+        wallet: p.walletAddress,
+        socketId: p.socketId,
+        entryFee: p.entryFee
+      }))
     });
 
     // Notify player they joined queue
@@ -223,29 +171,38 @@ export class MatchMaking {
    * Try to create a match if enough players are in queue
    */
   private async tryCreateMatch(): Promise<void> {
+    logger.action('tryCreateMatch called', {
+      queueSize: this.queue.length,
+      playersNeeded: this.PLAYERS_PER_MATCH,
+      willCreateMatch: this.queue.length >= this.PLAYERS_PER_MATCH,
+      queueWallets: this.queue.map(p => p.walletAddress).join(', ')
+    });
+
     if (this.queue.length < this.PLAYERS_PER_MATCH) {
+      logger.action('Not enough players for match', {
+        queueSize: this.queue.length,
+        playersNeeded: this.PLAYERS_PER_MATCH
+      });
       return;
     }
 
-    // Take first 6 players from queue
+    // Take first PLAYERS_PER_MATCH players from queue
     const matchPlayers = this.queue.splice(0, this.PLAYERS_PER_MATCH);
     const entryFee = matchPlayers[0].entryFee;
 
-    logger.match('Creating PvP match', {
+    logger.match('Creating match', {
       playerCount: matchPlayers.length,
       entryFee,
       wallets: matchPlayers.map(p => p.walletAddress).join(', ')
     });
 
+    // Generate local match ID
+    const localMatchId = `match-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
     let blockchainMatchId: number | null = null;
 
-    // Create match on blockchain if contract service is available and it's a paid match
+    // For paid matches, create on blockchain
     if (this.contractService && entryFee > 0) {
-      logger.action('Creating blockchain match', {
-        entryFee,
-        playerCount: matchPlayers.length
-      });
-
       try {
         blockchainMatchId = await this.contractService.createMatch(entryFee);
         logger.match('Blockchain match created', {
@@ -253,20 +210,36 @@ export class MatchMaking {
           entryFee
         });
       } catch (error: any) {
+        // Log detailed error information for debugging
         logger.error('Failed to create blockchain match', {
           error: error.message,
+          errorCode: error.code,
+          errorReason: error.reason,
+          errorData: error.data,
           entryFee,
-          playerCount: matchPlayers.length
+          playerCount: matchPlayers.length,
+          stack: error.stack
         });
 
         // Return players to queue on failure
         this.queue.unshift(...matchPlayers);
 
-        // Notify players of failure
+        // Create user-friendly error message based on error type
+        let userMessage = 'Failed to create match on blockchain. Please try again.';
+        if (error.message?.includes('insufficient funds')) {
+          userMessage = 'Game server has insufficient funds. Please contact support.';
+        } else if (error.message?.includes('network') || error.message?.includes('connection')) {
+          userMessage = 'Network connection issue. Please try again in a moment.';
+        } else if (error.message?.includes('revert')) {
+          userMessage = 'Smart contract rejected the match. Please check entry fee.';
+        }
+
+        // Notify players of failure with detailed message
         matchPlayers.forEach(({ socketId }) => {
           this.io.to(socketId).emit('error', {
             type: 'MATCH_CREATION_FAILED',
-            message: 'Failed to create match on blockchain. Please try again.',
+            message: userMessage,
+            details: error.message
           });
         });
 
@@ -274,10 +247,7 @@ export class MatchMaking {
       }
     }
 
-    // Generate local match ID (can be different from blockchain ID)
-    const localMatchId = `match-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-
-    // For paid matches with blockchain integration, wait for all players to pay
+    // For paid matches, wait for all players to pay
     if (blockchainMatchId !== null && entryFee > 0) {
       const deadline = Date.now() + this.PAYMENT_TIMEOUT_MS;
 
@@ -322,7 +292,7 @@ export class MatchMaking {
     }
 
     // For free matches, start immediately
-    logger.match('Starting free match immediately', {
+    logger.match('Starting free match', {
       matchId: localMatchId,
       playerCount: matchPlayers.length
     });
@@ -515,7 +485,8 @@ export class MatchMaking {
       matchPlayers,
       this.io,
       this.contractService,
-      blockchainMatchId
+      blockchainMatchId,
+      this.PLAYERS_PER_MATCH
     );
     this.activeMatches.set(localMatchId, gameRoom);
 
@@ -713,7 +684,8 @@ export class MatchMaking {
       matchPlayers,
       this.io,
       this.contractService,
-      null // No blockchain match ID for bot matches
+      null, // No blockchain match ID for bot matches
+      this.PLAYERS_PER_MATCH
     );
     this.activeMatches.set(matchId, gameRoom);
 
@@ -753,6 +725,29 @@ export class MatchMaking {
       botCount: 5
     });
     gameRoom.start();
+  }
+
+  /**
+   * Force end ALL active matches (dev utility)
+   * @returns Number of matches that were ended
+   */
+  forceEndAllMatches(): number {
+    const matchIds = Array.from(this.activeMatches.keys());
+    const count = matchIds.length;
+
+    logger.action('DEV: Force ending all active matches', {
+      matchCount: count,
+      matchIds: matchIds.join(', ')
+    });
+
+    matchIds.forEach(matchId => {
+      const gameRoom = this.activeMatches.get(matchId);
+      if (gameRoom && !gameRoom.isCompleted()) {
+        gameRoom.forceComplete();
+      }
+    });
+
+    return count;
   }
 
   /**

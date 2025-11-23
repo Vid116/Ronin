@@ -1,6 +1,6 @@
 {
   "RoninRumble1v1": {
-    "address": "0xbC174094A14F2cf8aaBafE90B6e72D15853B4de1",
+    "address": "0x4b3F7C33636B1b72312b32Bd1ba93A44D2f2a177",
     "abi": [
       {
         "type": "constructor",
@@ -79,6 +79,28 @@
             "type": "address",
             "name": "newServer",
             "indexed": true
+          }
+        ]
+      },
+      {
+        "type": "event",
+        "anonymous": false,
+        "name": "MatchCancelled",
+        "inputs": [
+          {
+            "type": "uint256",
+            "name": "matchId",
+            "indexed": true
+          },
+          {
+            "type": "uint256",
+            "name": "refundedAmount",
+            "indexed": false
+          },
+          {
+            "type": "uint256",
+            "name": "timestamp",
+            "indexed": false
           }
         ]
       },
@@ -242,6 +264,34 @@
       },
       {
         "type": "function",
+        "name": "MATCH_TIMEOUT",
+        "constant": true,
+        "stateMutability": "view",
+        "payable": false,
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "uint256",
+            "name": ""
+          }
+        ]
+      },
+      {
+        "type": "function",
+        "name": "MIN_PRIZE_POOL",
+        "constant": true,
+        "stateMutability": "view",
+        "payable": false,
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "uint256",
+            "name": ""
+          }
+        ]
+      },
+      {
+        "type": "function",
         "name": "PERCENT_DIVISOR",
         "constant": true,
         "stateMutability": "view",
@@ -326,6 +376,19 @@
       },
       {
         "type": "function",
+        "name": "cancelStaleMatch",
+        "constant": false,
+        "payable": false,
+        "inputs": [
+          {
+            "type": "uint256",
+            "name": "_matchId"
+          }
+        ],
+        "outputs": []
+      },
+      {
+        "type": "function",
         "name": "claimRewards",
         "constant": false,
         "payable": false,
@@ -349,14 +412,6 @@
             "name": ""
           }
         ]
-      },
-      {
-        "type": "function",
-        "name": "emergencyWithdraw",
-        "constant": false,
-        "payable": false,
-        "inputs": [],
-        "outputs": []
       },
       {
         "type": "function",

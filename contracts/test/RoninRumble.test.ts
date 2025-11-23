@@ -1,8 +1,8 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
 import { loadFixture } from "@nomicfoundation/hardhat-network-helpers";
-import { RoninRumbleMain__factory, RoninRumbleNFT__factory } from "../../typechain-types";
-import type { RoninRumbleMain, RoninRumbleNFT } from "../../typechain-types";
+import { RoninRumbleMain__factory, RoninRumbleNFT__factory, RoninRumble1v1__factory } from "../../typechain-types";
+import type { RoninRumbleMain, RoninRumbleNFT, RoninRumble1v1 } from "../../typechain-types";
 import type { SignerWithAddress } from "@nomicfoundation/hardhat-ethers/signers";
 
 describe("RoninRumbleMain", function () {
@@ -452,6 +452,111 @@ describe("RoninRumbleMain", function () {
       expect(await mainContract.getPlayerBalance(players[0].address)).to.equal(0);
     });
   });
+
+  describe("Stale Match Cancellation", function () {
+    it("Should allow cancellation of stale matches after 24 hours", async function () {
+      const { mainContract, gameServer, players } = await loadFixture(deployContractsFixture);
+
+      // Create match and have players join
+      await mainContract.connect(gameServer).createMatch(TIER_1);
+      await mainContract.connect(players[0]).joinMatch(1, { value: TIER_1 });
+      await mainContract.connect(players[1]).joinMatch(1, { value: TIER_1 });
+      await mainContract.connect(players[2]).joinMatch(1, { value: TIER_1 });
+
+      // Try to cancel immediately - should fail
+      await expect(
+        mainContract.connect(players[3]).cancelStaleMatch(1)
+      ).to.be.revertedWith("Match not stale yet");
+
+      // Advance time by 24 hours
+      await ethers.provider.send("evm_increaseTime", [24 * 60 * 60]);
+      await ethers.provider.send("evm_mine", []);
+
+      // Now cancellation should work
+      await expect(mainContract.connect(players[3]).cancelStaleMatch(1))
+        .to.emit(mainContract, "MatchCancelled")
+        .withArgs(1, TIER_1 * 3n, await ethers.provider.getBlock("latest").then(b => (b?.timestamp ?? 0) + 1));
+
+      // Check match is finalized
+      const match = await mainContract.getMatch(1);
+      expect(match.finalized).to.be.true;
+      expect(match.prizePool).to.equal(0);
+
+      // Check players got refunded
+      expect(await mainContract.getPlayerBalance(players[0].address)).to.equal(TIER_1);
+      expect(await mainContract.getPlayerBalance(players[1].address)).to.equal(TIER_1);
+      expect(await mainContract.getPlayerBalance(players[2].address)).to.equal(TIER_1);
+    });
+
+    it("Should not allow cancellation of already finalized matches", async function () {
+      const { mainContract, gameServer, players } = await loadFixture(deployContractsFixture);
+
+      // Create and finalize a match
+      await mainContract.connect(gameServer).createMatch(TIER_1);
+      for (let i = 0; i < 6; i++) {
+        await mainContract.connect(players[i]).joinMatch(1, { value: TIER_1 });
+      }
+
+      const playerAddresses = players.map(p => p.address) as [string, string, string, string, string, string];
+      const placements = [1, 2, 3, 4, 5, 6] as [number, number, number, number, number, number];
+      await mainContract.connect(gameServer).submitMatchResults(1, playerAddresses, placements);
+
+      // Advance time
+      await ethers.provider.send("evm_increaseTime", [24 * 60 * 60]);
+      await ethers.provider.send("evm_mine", []);
+
+      // Try to cancel - should fail
+      await expect(
+        mainContract.connect(players[0]).cancelStaleMatch(1)
+      ).to.be.revertedWith("Match already finalized");
+    });
+
+    it("Should not allow cancellation of non-existent matches", async function () {
+      const { mainContract, players } = await loadFixture(deployContractsFixture);
+
+      await expect(
+        mainContract.connect(players[0]).cancelStaleMatch(999)
+      ).to.be.revertedWith("Match does not exist");
+    });
+
+    it("Should allow anyone to cancel a stale match", async function () {
+      const { mainContract, gameServer, players, player7 } = await loadFixture(deployContractsFixture);
+
+      await mainContract.connect(gameServer).createMatch(TIER_1);
+      await mainContract.connect(players[0]).joinMatch(1, { value: TIER_1 });
+
+      await ethers.provider.send("evm_increaseTime", [24 * 60 * 60]);
+      await ethers.provider.send("evm_mine", []);
+
+      // Player who wasn't in the match can cancel it
+      await expect(mainContract.connect(player7).cancelStaleMatch(1))
+        .to.emit(mainContract, "MatchCancelled");
+    });
+  });
+
+  describe("Minimum Prize Pool Validation", function () {
+    it("Should enforce minimum prize pool on result submission", async function () {
+      const { mainContract, gameServer } = await loadFixture(deployContractsFixture);
+
+      // Create match (this will work)
+      await mainContract.connect(gameServer).createMatch(TIER_1);
+
+      // Try to submit results with no prize pool - should fail
+      const playerAddresses = [
+        ethers.ZeroAddress,
+        ethers.ZeroAddress,
+        ethers.ZeroAddress,
+        ethers.ZeroAddress,
+        ethers.ZeroAddress,
+        ethers.ZeroAddress
+      ] as [string, string, string, string, string, string];
+      const placements = [1, 2, 3, 4, 5, 6] as [number, number, number, number, number, number];
+
+      await expect(
+        mainContract.connect(gameServer).submitMatchResults(1, playerAddresses, placements)
+      ).to.be.revertedWith("No prize pool");
+    });
+  });
 });
 
 describe("RoninRumbleNFT", function () {
@@ -640,6 +745,147 @@ describe("RoninRumbleNFT", function () {
       expect(skin.rarity).to.equal(3);
       expect(skin.isEquipped).to.be.false;
       expect(skin.owner).to.equal(player1.address);
+    });
+  });
+});
+
+describe("RoninRumble1v1", function () {
+  const TIER_1 = ethers.parseEther("0.001");
+  const TIER_2 = ethers.parseEther("0.005");
+  const TIER_3 = ethers.parseEther("0.01");
+
+  async function deploy1v1Fixture() {
+    const [owner, gameServer, player1, player2, player3] = await ethers.getSigners();
+
+    const contract1v1 = await new RoninRumble1v1__factory(owner).deploy(gameServer.address);
+
+    return { contract1v1, owner, gameServer, player1, player2, player3 };
+  }
+
+  describe("Deployment", function () {
+    it("Should set the correct game server", async function () {
+      const { contract1v1, gameServer } = await loadFixture(deploy1v1Fixture);
+      expect(await contract1v1.gameServer()).to.equal(gameServer.address);
+    });
+
+    it("Should have 2 players per match", async function () {
+      const { contract1v1 } = await loadFixture(deploy1v1Fixture);
+      expect(await contract1v1.PLAYERS_PER_MATCH()).to.equal(2);
+    });
+  });
+
+  describe("Match Creation and Joining", function () {
+    it("Should allow game server to create 1v1 match", async function () {
+      const { contract1v1, gameServer } = await loadFixture(deploy1v1Fixture);
+
+      await expect(contract1v1.connect(gameServer).createMatch(TIER_1))
+        .to.emit(contract1v1, "MatchCreated")
+        .withArgs(1, TIER_1, await ethers.provider.getBlock("latest").then(b => (b?.timestamp ?? 0) + 1));
+    });
+
+    it("Should allow 2 players to join", async function () {
+      const { contract1v1, gameServer, player1, player2 } = await loadFixture(deploy1v1Fixture);
+
+      await contract1v1.connect(gameServer).createMatch(TIER_1);
+
+      await expect(contract1v1.connect(player1).joinMatch(1, { value: TIER_1 }))
+        .to.emit(contract1v1, "PlayerJoinedMatch")
+        .withArgs(1, player1.address, TIER_1);
+
+      await expect(contract1v1.connect(player2).joinMatch(1, { value: TIER_1 }))
+        .to.emit(contract1v1, "PlayerJoinedMatch")
+        .withArgs(1, player2.address, TIER_1);
+
+      const match = await contract1v1.getMatch(1);
+      expect(match.players[0]).to.equal(player1.address);
+      expect(match.players[1]).to.equal(player2.address);
+      expect(match.prizePool).to.equal(TIER_1 * 2n);
+    });
+
+    it("Should reject third player", async function () {
+      const { contract1v1, gameServer, player1, player2, player3 } = await loadFixture(deploy1v1Fixture);
+
+      await contract1v1.connect(gameServer).createMatch(TIER_1);
+      await contract1v1.connect(player1).joinMatch(1, { value: TIER_1 });
+      await contract1v1.connect(player2).joinMatch(1, { value: TIER_1 });
+
+      await expect(
+        contract1v1.connect(player3).joinMatch(1, { value: TIER_1 })
+      ).to.be.revertedWith("Match is full");
+    });
+  });
+
+  describe("Prize Distribution", function () {
+    it("Should give winner 91.7% after platform fee", async function () {
+      const { contract1v1, gameServer, player1, player2 } = await loadFixture(deploy1v1Fixture);
+
+      await contract1v1.connect(gameServer).createMatch(TIER_1);
+      await contract1v1.connect(player1).joinMatch(1, { value: TIER_1 });
+      await contract1v1.connect(player2).joinMatch(1, { value: TIER_1 });
+
+      const totalPrizePool = TIER_1 * 2n;
+      const platformFee = (totalPrizePool * 83n) / 1000n; // 8.3%
+      const expectedWinnerPrize = totalPrizePool - platformFee; // 91.7%
+
+      await contract1v1.connect(gameServer).submitMatchResults(
+        1,
+        [player1.address, player2.address],
+        [1, 2] // player1 wins
+      );
+
+      expect(await contract1v1.getPlayerBalance(player1.address)).to.equal(expectedWinnerPrize);
+      expect(await contract1v1.getPlayerBalance(player2.address)).to.equal(0);
+      expect(await contract1v1.totalPlatformFees()).to.equal(platformFee);
+    });
+  });
+
+  describe("Stale Match Cancellation (1v1)", function () {
+    it("Should refund both players on stale match cancellation", async function () {
+      const { contract1v1, gameServer, player1, player2 } = await loadFixture(deploy1v1Fixture);
+
+      await contract1v1.connect(gameServer).createMatch(TIER_2);
+      await contract1v1.connect(player1).joinMatch(1, { value: TIER_2 });
+      await contract1v1.connect(player2).joinMatch(1, { value: TIER_2 });
+
+      // Advance time by 24 hours
+      await ethers.provider.send("evm_increaseTime", [24 * 60 * 60]);
+      await ethers.provider.send("evm_mine", []);
+
+      await expect(contract1v1.connect(player1).cancelStaleMatch(1))
+        .to.emit(contract1v1, "MatchCancelled")
+        .withArgs(1, TIER_2 * 2n, await ethers.provider.getBlock("latest").then(b => (b?.timestamp ?? 0) + 1));
+
+      expect(await contract1v1.getPlayerBalance(player1.address)).to.equal(TIER_2);
+      expect(await contract1v1.getPlayerBalance(player2.address)).to.equal(TIER_2);
+    });
+  });
+
+  describe("Reward Claiming (1v1)", function () {
+    it("Should allow winner to claim rewards", async function () {
+      const { contract1v1, gameServer, player1, player2 } = await loadFixture(deploy1v1Fixture);
+
+      await contract1v1.connect(gameServer).createMatch(TIER_1);
+      await contract1v1.connect(player1).joinMatch(1, { value: TIER_1 });
+      await contract1v1.connect(player2).joinMatch(1, { value: TIER_1 });
+
+      await contract1v1.connect(gameServer).submitMatchResults(
+        1,
+        [player1.address, player2.address],
+        [1, 2]
+      );
+
+      const winnerBalance = await contract1v1.getPlayerBalance(player1.address);
+      const balanceBefore = await ethers.provider.getBalance(player1.address);
+
+      await expect(contract1v1.connect(player1).claimRewards())
+        .to.emit(contract1v1, "RewardClaimed")
+        .withArgs(player1.address, winnerBalance);
+
+      expect(await contract1v1.getPlayerBalance(player1.address)).to.equal(0);
+
+      const balanceAfter = await ethers.provider.getBalance(player1.address);
+      // Balance should increase by approximately winnerBalance (minus gas)
+      expect(balanceAfter).to.be.gt(balanceBefore);
     });
   });
 });

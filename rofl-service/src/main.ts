@@ -6,6 +6,24 @@ import { computeBattle } from './combat-service';
 // Load environment variables
 dotenv.config();
 
+// Validate required environment variables
+function validateEnvironment(): void {
+  const required = ['ROFL_SIGNING_KEY'];
+  const missing = required.filter(key => !process.env[key]);
+
+  if (missing.length > 0) {
+    console.error('❌ Missing required environment variables:', missing);
+    console.error('Please set the following in your .env file or Docker environment:');
+    missing.forEach(key => console.error(`  - ${key}`));
+    process.exit(1);
+  }
+
+  console.log('✅ Environment variables validated successfully');
+  console.log(`   ROFL_SIGNING_KEY: ${process.env.ROFL_SIGNING_KEY?.substring(0, 10)}...`);
+}
+
+validateEnvironment();
+
 const app: Express = express();
 const PORT = process.env.PORT || 3000;
 

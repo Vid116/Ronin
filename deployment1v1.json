@@ -2,10 +2,10 @@
   "network": "roninTestnet",
   "chainId": "2021",
   "deployer": "0xfDF0e775aC0E946DC940e3ad301e1E64fc722C51",
-  "timestamp": "2025-11-22T21:42:09.158Z",
+  "timestamp": "2025-11-23T03:48:23.466Z",
   "contract": {
     "RoninRumble1v1": {
-      "address": "0xbC174094A14F2cf8aaBafE90B6e72D15853B4de1",
+      "address": "0x4b3F7C33636B1b72312b32Bd1ba93A44D2f2a177",
       "gameServer": "0xfDF0e775aC0E946DC940e3ad301e1E64fc722C51"
     }
   },

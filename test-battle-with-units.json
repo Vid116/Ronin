@@ -1,0 +1,59 @@
+{
+  "matchId": "test-456",
+  "round": 1,
+  "board1": {
+    "units": [
+      {
+        "id": "unit1",
+        "name": "Warrior",
+        "tier": 1,
+        "attack": 10,
+        "health": 50,
+        "stars": 1,
+        "ability": {
+          "name": "None",
+          "trigger": "passive",
+          "effect": "None"
+        },
+        "dodgeChance": 0,
+        "critChance": 0
+      },
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "board2": {
+    "units": [
+      {
+        "id": "unit2",
+        "name": "Archer",
+        "tier": 1,
+        "attack": 8,
+        "health": 40,
+        "stars": 1,
+        "ability": {
+          "name": "None",
+          "trigger": "passive",
+          "effect": "None"
+        },
+        "dodgeChance": 0,
+        "critChance": 0
+      },
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "player1Address": "0x1111111111111111111111111111111111111111",
+  "player2Address": "0x2222222222222222222222222222222222222222",
+  "seed": 12345
+}

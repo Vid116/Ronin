@@ -71,39 +71,50 @@ export class ContractService {
     try {
       logger.action('Creating match on blockchain', { entryFee });
 
+      // Check wallet balance before attempting transaction
+      const balance = await this.provider.getBalance(this.wallet.address);
+      const balanceInRon = Number(ethers.formatEther(balance));
+
+      logger.action('Game server wallet balance', {
+        address: this.wallet.address,
+        balance: balanceInRon,
+        balanceWei: balance.toString()
+      });
+
+      // Estimate gas needed (roughly 0.001 RON for gas)
+      const estimatedGasNeeded = 0.001;
+      if (balanceInRon < estimatedGasNeeded) {
+        throw new Error(
+          `insufficient funds for gas: wallet has ${balanceInRon} RON but needs ~${estimatedGasNeeded} RON for gas`
+        );
+      }
+
       // Convert entry fee to wei
       const entryFeeWei = ethers.parseEther(entryFee.toString());
 
-      // Call createMatch on contract
+      // Use staticCall to get the matchId that will be created
+      // This simulates the transaction without sending it and returns the matchId
+      const matchIdBigInt = await this.contract.createMatch.staticCall(entryFeeWei);
+      const matchId = Number(matchIdBigInt);
+
+      logger.action('Match ID obtained from static call', { matchId });
+
+      // Now send the actual transaction
       const tx = await this.contract.createMatch(entryFeeWei);
       logger.action('Blockchain transaction sent', {
         txHash: tx.hash,
-        entryFee
+        entryFee,
+        matchId
       });
 
       // Wait for transaction confirmation
       const receipt = await tx.wait();
       logger.state('Transaction confirmed', {
         blockNumber: receipt.blockNumber,
-        txHash: tx.hash
+        txHash: tx.hash,
+        matchId
       });
 
-      // Parse MatchCreated event to get matchId
-      const matchCreatedEvent = receipt.logs
-        .map((log: any) => {
-          try {
-            return this.contract.interface.parseLog(log);
-          } catch {
-            return null;
-          }
-        })
-        .find((parsed: any) => parsed && parsed.name === 'MatchCreated');
-
-      if (!matchCreatedEvent) {
-        throw new Error('MatchCreated event not found in transaction receipt');
-      }
-
-      const matchId = Number(matchCreatedEvent.args.matchId);
       logger.match('Blockchain match created', {
         matchId,
         entryFee,
@@ -114,7 +125,11 @@ export class ContractService {
     } catch (error: any) {
       logger.error('Failed to create blockchain match', {
         error: error.message,
-        entryFee
+        errorCode: error.code,
+        errorReason: error.reason,
+        errorData: error.data,
+        entryFee,
+        stack: error.stack
       });
       throw new Error(`Failed to create match: ${error.message}`);
     }
@@ -223,20 +238,20 @@ export class ContractService {
         placements: placements.join(', ')
       });
 
-      // Validate input
-      if (players.length !== 6 || placements.length !== 6) {
-        throw new Error('Must provide exactly 6 players and 6 placements');
+      // Validate input matches expected player count
+      if (players.length !== this.playersPerMatch || placements.length !== this.playersPerMatch) {
+        throw new Error(`Must provide exactly ${this.playersPerMatch} players and ${this.playersPerMatch} placements`);
       }
 
-      // Validate placements are 1-6 and unique
+      // Validate placements are 1-N and unique
       const placementSet = new Set(placements);
-      if (placementSet.size !== 6 || !placements.every(p => p >= 1 && p <= 6)) {
-        throw new Error('Placements must be unique values from 1 to 6');
+      if (placementSet.size !== this.playersPerMatch || !placements.every(p => p >= 1 && p <= this.playersPerMatch)) {
+        throw new Error(`Placements must be unique values from 1 to ${this.playersPerMatch}`);
       }
 
-      // Convert to fixed-size arrays for contract
-      const playersArray = players as [string, string, string, string, string, string];
-      const placementsArray = placements as [number, number, number, number, number, number];
+      // Convert to arrays for contract (TypeScript will check array size at compile time based on contract ABI)
+      const playersArray = players as any;
+      const placementsArray = placements as any;
 
       // Call submitMatchResults on contract
       const tx = await this.contract.submitMatchResults(

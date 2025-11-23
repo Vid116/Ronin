@@ -16,6 +16,8 @@ import { OpponentList } from '@/components/game/OpponentList';
 import { Card } from '@/components/game/Card';
 import { Unit } from '@/types/game';
 import toast from 'react-hot-toast';
+import { LogOut, Wifi, WifiOff } from 'lucide-react';
+import { Button } from '@/components/ui/Button';
 
 export default function MatchPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params);
@@ -174,37 +176,39 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
     <DndProvider backend={HTML5Backend}>
       <Toaster position="top-right" />
 
-      <div className="min-h-screen bg-gradient-to-b from-gray-900 to-gray-800 p-4">
+      <div className="min-h-screen bg-background p-4">
         <div className="container mx-auto max-w-7xl">
           {/* Top Bar */}
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-4">
               {phase !== 'COMBAT' && (
-                <button
+                <Button
                   onClick={() => router.push('/')}
-                  className="px-4 py-2 text-gray-400 hover:text-white transition-colors border border-gray-700 rounded-lg hover:border-gray-500"
+                  variant="ghost"
+                  size="sm"
                 >
+                  <LogOut className="w-4 h-4 mr-2" strokeWidth={2} />
                   Leave Match
-                </button>
+                </Button>
               )}
               {phase !== 'COMBAT' && (
-                <div className="text-white">
-                  <span className="font-bold text-lg">Round {round}</span>
-                  <span className="text-gray-400 ml-2">•</span>
-                  <span className="text-gray-400 ml-2 text-sm">
+                <div className="text-foreground">
+                  <span className="font-semibold text-lg">Round {round}</span>
+                  <span className="text-warm-gray-400 ml-2">•</span>
+                  <span className="text-warm-gray-400 ml-2 text-sm">
                     Match ID: {resolvedParams.id.slice(0, 8)}...
                   </span>
                 </div>
               )}
               {/* Connection status */}
               {phase !== 'COMBAT' && (
-                <div className="flex items-center gap-2">
-                  <div
-                    className={`w-2 h-2 rounded-full ${
-                      socket.isConnected ? 'bg-green-500' : 'bg-red-500'
-                    }`}
-                  />
-                  <span className="text-xs text-gray-400">
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-surface rounded-lg border border-warm-gray-700">
+                  {socket.isConnected ? (
+                    <Wifi className="w-3 h-3 text-success" strokeWidth={2} />
+                  ) : (
+                    <WifiOff className="w-3 h-3 text-error" strokeWidth={2} />
+                  )}
+                  <span className="text-xs text-warm-gray-400">
                     {socket.isConnected ? 'Connected' : 'Disconnected'}
                   </span>
                 </div>
@@ -220,14 +224,14 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
           {process.env.NODE_ENV === 'development' && (
             <button
               onClick={() => {
-                if (confirm('Force end this match? All players will be kicked to lobby.')) {
+                if (confirm('Force end ALL active matches on the server? This will kick all players in all matches to lobby.')) {
                   forceEndMatch();
                 }
               }}
               className="fixed bottom-4 right-4 bg-error/80 hover:bg-error text-white px-3 py-1.5 rounded-lg text-xs font-medium shadow-md z-50 border border-error opacity-50 hover:opacity-100 transition-opacity"
-              title="DEV: Force End Match"
+              title="DEV: Force End All Matches"
             >
-              End Match
+              End All Matches
             </button>
           )}
 
@@ -263,36 +267,32 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
                     {/* Combat State Toggle */}
                     {combatInitialBoards && (
                       <div className="flex items-center justify-center gap-3 mb-2">
-                        <button
+                        <Button
                           onClick={() => setShowFinalCombatState(false)}
                           disabled={timeRemaining > 7}
-                          className={`px-4 py-2 rounded-lg font-semibold transition-all ${
-                            !showFinalCombatState
-                              ? 'bg-blue-600 text-white shadow-lg ring-2 ring-blue-400'
-                              : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
-                          } ${timeRemaining > 7 ? 'cursor-not-allowed opacity-75' : 'cursor-pointer'}`}
+                          variant={!showFinalCombatState ? "primary" : "ghost"}
+                          size="md"
+                          className={timeRemaining > 7 ? 'opacity-75' : ''}
                         >
                           Combat Start {timeRemaining > 7 ? `(${Math.ceil(timeRemaining - 7)}s)` : ''}
-                        </button>
-                        <button
+                        </Button>
+                        <Button
                           onClick={() => setShowFinalCombatState(true)}
                           disabled={timeRemaining > 7}
-                          className={`px-4 py-2 rounded-lg font-semibold transition-all ${
-                            showFinalCombatState
-                              ? 'bg-red-600 text-white shadow-lg ring-2 ring-red-400'
-                              : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
-                          } ${timeRemaining > 7 ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
+                          variant={showFinalCombatState ? "primary" : "ghost"}
+                          size="md"
+                          className={timeRemaining > 7 ? 'opacity-50' : ''}
                         >
                           Combat End {timeRemaining <= 7 ? `(${timeRemaining}s)` : ''}
-                        </button>
+                        </Button>
                         {combatUnitsRemaining && (
-                          <div className="ml-4 text-sm text-gray-400">
+                          <div className="ml-4 text-sm text-warm-gray-400">
                             Remaining:
-                            <span className="ml-2 text-blue-400 font-bold">
+                            <span className="ml-2 text-sage-500 font-semibold">
                               You: {combatUnitsRemaining.player}
                             </span>
                             <span className="mx-2">vs</span>
-                            <span className="text-red-400 font-bold">
+                            <span className="text-error font-semibold">
                               Opponent: {combatUnitsRemaining.opponent}
                             </span>
                           </div>
@@ -344,14 +344,14 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: 20 }}
-                    className="bg-gray-800/50 backdrop-blur rounded-lg p-4 border border-gray-700"
+                    className="bg-surface rounded-lg p-4 border-2 border-warm-gray-700"
                   >
                     <div className="flex items-center justify-between mb-3">
-                      <span className="text-sm font-bold text-white">
+                      <span className="text-sm font-semibold text-foreground">
                         Bench ({bench.length}/8)
                       </span>
-                      <span className="text-xs text-gray-400">
-                        {selectedCard ? '👆 Click board to place' : 'Click or drag cards • Right-click to sell'}
+                      <span className="text-xs text-warm-gray-400">
+                        {selectedCard ? 'Click board to place' : 'Click or drag cards • Right-click to sell'}
                       </span>
                     </div>
 
@@ -367,7 +367,7 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
                             handleBenchSell(unit.id);
                           }}
                           className={`
-                            ${selectedCard?.unit.id === unit.id ? 'ring-4 ring-purple-500 rounded-lg' : ''}
+                            ${selectedCard?.unit.id === unit.id ? 'ring-2 ring-sage-500 rounded-lg' : ''}
                           `}
                         >
                           <Card
@@ -380,7 +380,7 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
                       ))}
 
                       {bench.length === 0 && (
-                        <div className="w-full text-center py-8 text-gray-500 text-sm">
+                        <div className="w-full text-center py-8 text-warm-gray-500 text-sm">
                           No units on bench. Buy from shop below!
                         </div>
                       )}
@@ -413,11 +413,11 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
             {/* Right Sidebar - Combat Log / Info - Hide during combat */}
             {phase !== 'COMBAT' && (
               <div className="col-span-3">
-              <div className="bg-gray-800/50 backdrop-blur rounded-lg p-4 border border-gray-700 sticky top-4">
-                <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
+              <div className="bg-surface rounded-lg p-4 border-2 border-warm-gray-700 sticky top-4">
+                <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
                   <span>Combat Log</span>
                   {combatLog.length > 0 && (
-                    <span className="text-xs bg-blue-600 px-2 py-0.5 rounded-full">
+                    <span className="text-xs bg-sage-600 text-white px-2 py-0.5 rounded-full">
                       {combatLog.length}
                     </span>
                   )}

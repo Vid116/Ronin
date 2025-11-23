@@ -57,6 +57,7 @@ export class GameRoom {
   // ROFL integration for paid matches
   private roflClient: ROFLClient | null;
   private entryFee: number;
+  private matchType: 'standard' | 'rofl-test';
 
   constructor(
     matchId: string,
@@ -72,13 +73,20 @@ export class GameRoom {
     this.blockchainMatchId = blockchainMatchId;
     this.expectedPlayerCount = expectedPlayerCount;
 
-    // Store entry fee (use first player's entry fee - they should all be the same)
+    // Store entry fee and match type (use first player's data)
     this.entryFee = queuedPlayers[0]?.entryFee || 0;
+    this.matchType = queuedPlayers[0]?.matchType || 'standard';
 
-    // Initialize ROFL client for paid matches
-    this.roflClient = this.entryFee > 0 ? createROFLClient() : null;
-    if (this.roflClient && this.entryFee > 0) {
-      console.log(`[ROFL] Match ${matchId} is a paid match (fee: ${this.entryFee}) - ROFL enabled`);
+    // Initialize ROFL client for paid matches OR rofl-test matches
+    const shouldUseROFL = this.entryFee > 0 || this.matchType === 'rofl-test';
+    this.roflClient = shouldUseROFL ? createROFLClient() : null;
+
+    if (this.roflClient) {
+      if (this.matchType === 'rofl-test') {
+        console.log(`[ROFL] Match ${matchId} is a ROFL TEST match - ROFL enabled for testing`);
+      } else if (this.entryFee > 0) {
+        console.log(`[ROFL] Match ${matchId} is a paid match (fee: ${this.entryFee}) - ROFL enabled`);
+      }
     }
 
     // Initialize systems
@@ -325,7 +333,12 @@ export class GameRoom {
 
     // Run combat for each pairing FIRST (sends COMBAT_START and COMBAT_BOARDS)
     for (const [playerWallet, opponentWallet] of pairings.entries()) {
-      await this.runCombat(playerWallet, opponentWallet);
+      try {
+        await this.runCombat(playerWallet, opponentWallet);
+      } catch (error) {
+        console.error(`[COMBAT] Failed to run combat for ${playerWallet} vs ${opponentWallet}:`, error);
+        // Continue with other pairings even if one fails
+      }
     }
 
     // Broadcast phase change to ALL players AFTER combat data is sent
@@ -366,13 +379,14 @@ export class GameRoom {
     const timeRemaining = this.roundManager.getTimeRemaining();
     this.stateSync.syncCombatStart(playerSocketId, opponentState, timeRemaining);
 
-    // Simulate combat - route to ROFL for paid matches, local for free matches
+    // Simulate combat - route to ROFL for paid/rofl-test matches, local for standard free matches
     const currentRound = this.roundManager.getCurrentRound();
     let result;
 
-    if (this.roflClient && this.entryFee > 0) {
-      // PAID MATCH: Use ROFL service for trustless computation
-      console.log(`[ROFL] Computing battle via ROFL for paid match`);
+    if (this.roflClient) {
+      // ROFL MATCH: Use ROFL service (paid match or rofl-test match)
+      const matchTypeLabel = this.matchType === 'rofl-test' ? 'ROFL test match' : 'paid match';
+      console.log(`[ROFL] Computing battle via ROFL for ${matchTypeLabel}`);
 
       try {
         result = await this.computeBattleViaROFL(
@@ -385,20 +399,24 @@ export class GameRoom {
         console.log(`[ROFL] Battle computed successfully via ROFL`);
       } catch (error) {
         console.error(`[ROFL] Battle computation failed:`, error);
-        // For paid matches, we MUST use ROFL - if it fails, we cannot continue
+        // For ROFL matches, we MUST use ROFL - if it fails, we cannot continue
         // Notify players and cancel the match
+        const errorMessage = this.matchType === 'rofl-test'
+          ? 'ROFL test service unavailable. Please try again.'
+          : 'Battle service unavailable. Match will be cancelled and refunded.';
+
         this.io.to(playerSocketId).emit('server_event', {
           type: 'ERROR',
           data: {
-            message: 'Battle service unavailable. Match will be cancelled and refunded.',
+            message: errorMessage,
             error: error instanceof Error ? error.message : 'Unknown error'
           }
         });
         throw error; // This will stop the match
       }
     } else {
-      // FREE MATCH: Use local combat simulator
-      console.log(`[LOCAL] Computing battle via local engine for free match`);
+      // STANDARD FREE MATCH: Use local combat simulator
+      console.log(`[LOCAL] Computing battle via local engine for standard free match`);
       result = this.combatSimulator.simulateCombat(
         playerBoard,
         opponentBoard,
@@ -1385,15 +1403,16 @@ export class GameRoom {
     const roflResponse = await this.roflClient.computeBattle(request);
 
     // Convert ROFL response to local combat result format
+    // Transform board formats from ROFL { units: [] } to frontend { top: [], bottom: [] }
     const result = {
       winner: roflResponse.winner === 'player1' ? 'player' : roflResponse.winner === 'player2' ? 'opponent' : 'draw',
       damageDealt: roflResponse.damageToLoser,
       playerUnitsRemaining: this.countUnits(roflResponse.finalBoard1),
       opponentUnitsRemaining: this.countUnits(roflResponse.finalBoard2),
-      initialBoard1: roflBoard1,
-      initialBoard2: roflBoard2,
-      finalBoard1: roflResponse.finalBoard1,
-      finalBoard2: roflResponse.finalBoard2,
+      initialBoard1: this.convertROFLBoardToFrontend(roflBoard1),
+      initialBoard2: this.convertROFLBoardToFrontend(roflBoard2),
+      finalBoard1: this.convertROFLBoardToFrontend(roflResponse.finalBoard1),
+      finalBoard2: this.convertROFLBoardToFrontend(roflResponse.finalBoard2),
       combatLog: roflResponse.events,
       seed: roflResponse.seed,
       roflSignature: roflResponse.signature,
@@ -1467,6 +1486,20 @@ export class GameRoom {
     });
 
     return { units };
+  }
+
+  /**
+   * Convert ROFL CombatBoard format back to game Board format
+   */
+  private convertROFLBoardToFrontend(roflBoard: any): Board {
+    if (!roflBoard || !roflBoard.units) {
+      return { top: [null, null, null, null], bottom: [null, null, null, null] };
+    }
+
+    return {
+      top: roflBoard.units.slice(0, 4),
+      bottom: roflBoard.units.slice(4, 8)
+    };
   }
 
   /**

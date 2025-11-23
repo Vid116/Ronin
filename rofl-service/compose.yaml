@@ -1,11 +1,14 @@
 services:
   battle-service:
     build: .
-    image: "ghcr.io/roninrumble/rofl-battle:latest"
+    image: "ghcr.io/vid116/rofl-battle:latest@sha256:e16619401593fab5d3f745c88a353cffe410d475b557cc2980d48884b782f93c"
     platform: linux/amd64
     ports:
-      - "3000:3000"
+      - "8000:3000"
     environment:
-      - NODE_ENV=production
       - PORT=3000
+      - NODE_ENV=production
+      - ROFL_SIGNING_KEY=${ROFL_SIGNING_KEY}
+      - ROFL_ENCLAVE_ID=ronin-rumble-battle-prod
+      - ROFL_TEE_TYPE=tdx
     restart: unless-stopped

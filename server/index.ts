@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import { MatchMaking } from './game/MatchMaking';
@@ -6,8 +7,35 @@ import { logger } from './utils/logger';
 
 const PORT = process.env.PORT || 3001;
 
-// Create HTTP server
-const httpServer = createServer();
+// Create HTTP server with basic request handler for config endpoint
+const httpServer = createServer((req, res) => {
+  // Handle /api/config endpoint
+  if (req.url === '/api/config' && req.method === 'GET') {
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+    });
+    res.end(JSON.stringify({
+      playersPerMatch: parseInt(process.env.PLAYERS_PER_MATCH || '6', 10)
+    }));
+    return;
+  }
+
+  // Handle CORS preflight
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204, {
+      'Access-Control-Allow-Origin': process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000',
+      'Access-Control-Allow-Methods': 'GET, POST',
+      'Access-Control-Allow-Headers': 'Content-Type'
+    });
+    res.end();
+    return;
+  }
+
+  // For all other requests, return 404
+  res.writeHead(404);
+  res.end();
+});
 
 // Create Socket.IO server
 const io = new SocketIOServer(httpServer, {
@@ -82,7 +110,7 @@ io.on('connection', (socket) => {
 
     switch (event.type) {
       case 'JOIN_QUEUE':
-        handleJoinQueue(socket, event.data.entryFee, event.data.transactionHash);
+        handleJoinQueue(socket, event.data.entryFee, event.data.transactionHash, event.data.matchType);
         break;
 
       case 'JOIN_BOT_MATCH':
@@ -144,17 +172,18 @@ io.on('connection', (socket) => {
 });
 
 // Event handlers
-async function handleJoinQueue(socket: any, entryFee: number, transactionHash?: string) {
+async function handleJoinQueue(socket: any, entryFee: number, transactionHash?: string, matchType: 'standard' | 'rofl-test' = 'standard') {
   const walletAddress = socket.walletAddress;
   logger.action('Player joining queue', {
     wallet: walletAddress,
     socketId: socket.id,
     entryFee,
-    transactionHash
+    transactionHash,
+    matchType
   });
 
   try {
-    await matchMaking.addToQueue(socket.id, entryFee, transactionHash);
+    await matchMaking.addToQueue(socket.id, entryFee, transactionHash, matchType);
   } catch (error: any) {
     logger.error('Failed to join queue', {
       wallet: walletAddress,
@@ -383,7 +412,7 @@ function handleReady(socket: any) {
 function handleForceEndMatch(socket: any) {
   const walletAddress = socket.walletAddress;
 
-  logger.action('DEV: Attempting to force end match', {
+  logger.action('DEV: Attempting to force end ALL matches', {
     wallet: walletAddress,
     socketId: socket.id
   });
@@ -395,39 +424,19 @@ function handleForceEndMatch(socket: any) {
     queueSize: queueStatus.queueSize
   });
 
-  // Try to find match by wallet address (more reliable for reconnections)
-  const gameRoomByWallet = matchMaking.getMatchByWallet(walletAddress);
-  const gameRoomBySocket = matchMaking.getMatchByPlayer(socket.id);
+  // Force end all active matches
+  const matchesEnded = matchMaking.forceEndAllMatches();
 
-  logger.action('DEV: Match lookup results', {
+  logger.action('DEV: All matches force ended', {
     wallet: walletAddress,
     socketId: socket.id,
-    foundByWallet: !!gameRoomByWallet,
-    foundBySocket: !!gameRoomBySocket,
-    matchIdByWallet: gameRoomByWallet?.matchId,
-    matchIdBySocket: gameRoomBySocket?.matchId
+    matchesEnded
   });
 
-  const gameRoom = gameRoomByWallet || gameRoomBySocket;
-
-  if (!gameRoom) {
-    logger.error('Force end failed - not in active match', {
-      wallet: walletAddress,
-      socketId: socket.id,
-      activeMatches: queueStatus.activeMatches,
-      debugInfo: 'No match found by wallet or socket ID'
-    });
-    socket.emit('error', { message: 'Not in an active match. The match may have already ended.' });
-    return;
-  }
-
-  logger.action('DEV: Force ending match', {
-    wallet: walletAddress,
-    socketId: socket.id,
-    matchId: gameRoom.matchId
+  // Send success response
+  socket.emit('success', {
+    message: `Force ended ${matchesEnded} active match(es)`
   });
-
-  gameRoom.forceComplete();
 }
 
 function handleDisconnect(socket: any) {

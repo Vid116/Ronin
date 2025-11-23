@@ -18,6 +18,8 @@ contract RoninRumbleMain is ReentrancyGuard, Pausable, Ownable {
     uint256 public constant SECOND_PLACE_PERCENT = 180; // 18%
     uint256 public constant THIRD_PLACE_PERCENT = 100; // 10%
     uint256 public constant PERCENT_DIVISOR = 1000; // For percentage calculations
+    uint256 public constant MATCH_TIMEOUT = 24 hours; // Time before match can be cancelled
+    uint256 public constant MIN_PRIZE_POOL = 1000 wei; // Minimum prize pool to prevent dust
 
     // Valid entry fee tiers (in wei)
     uint256 public constant TIER_1 = 0.001 ether; // 0.001 RON
@@ -57,6 +59,7 @@ contract RoninRumbleMain is ReentrancyGuard, Pausable, Ownable {
     event BalanceWithdrawn(address indexed player, uint256 amount);
     event GameServerUpdated(address indexed oldServer, address indexed newServer);
     event PlatformFeesWithdrawn(address indexed owner, uint256 amount);
+    event MatchCancelled(uint256 indexed matchId, uint256 refundedAmount, uint256 timestamp);
 
     // Modifiers
     modifier onlyGameServer() {
@@ -155,6 +158,7 @@ contract RoninRumbleMain is ReentrancyGuard, Pausable, Ownable {
         require(matchData.entryFee > 0, "Match does not exist");
         require(!matchData.finalized, "Match already finalized");
         require(matchData.prizePool > 0, "No prize pool");
+        require(matchData.prizePool >= MIN_PRIZE_POOL, "Prize pool too small");
 
         // Validate players and placements
         _validateMatchData(_matchId, _players, _placements);
@@ -340,14 +344,33 @@ contract RoninRumbleMain is ReentrancyGuard, Pausable, Ownable {
     }
 
     /**
-     * @dev Emergency withdrawal function (only owner, when paused)
+     * @dev Cancels a stale match and refunds all players
+     * @param _matchId The ID of the match to cancel
+     * Can be called by anyone if match is older than MATCH_TIMEOUT and not finalized
      */
-    function emergencyWithdraw() external onlyOwner whenPaused {
-        uint256 balance = address(this).balance;
-        require(balance > 0, "No balance to withdraw");
+    function cancelStaleMatch(uint256 _matchId) external nonReentrant {
+        Match storage matchData = matches[_matchId];
 
-        (bool success, ) = owner().call{value: balance}("");
-        require(success, "Transfer failed");
+        require(matchData.entryFee > 0, "Match does not exist");
+        require(!matchData.finalized, "Match already finalized");
+        require(block.timestamp >= matchData.timestamp + MATCH_TIMEOUT, "Match not stale yet");
+
+        uint256 refundAmount = matchData.prizePool;
+        require(refundAmount > 0, "No funds to refund");
+
+        // Refund all players who joined to their claimable balances
+        for (uint256 i = 0; i < PLAYERS_PER_MATCH; i++) {
+            address player = matchData.players[i];
+            if (player != address(0)) {
+                playerBalances[player] += matchData.entryFee;
+            }
+        }
+
+        // Mark match as finalized and clear prize pool
+        matchData.finalized = true;
+        matchData.prizePool = 0;
+
+        emit MatchCancelled(_matchId, refundAmount, block.timestamp);
     }
 
     receive() external payable {

@@ -164,6 +164,22 @@ export default function LobbyPage() {
     }
   };
 
+  const handleJoinROFLTest = async () => {
+    if (!socket.isConnected) {
+      toast.error('Not connected to game server. Please refresh.');
+      return;
+    }
+
+    // ROFL test matches are free but use ROFL computation
+    const success = socket.joinQueue(0, undefined, 'rofl-test');
+    if (success) {
+      joinQueue(0);
+      toast.success('Joining ROFL test match (free, using TEE)...');
+    } else {
+      toast.error('Failed to join ROFL test queue');
+    }
+  };
+
   const handlePayEntry = async () => {
     if (!pendingPayment) return;
 
@@ -493,6 +509,40 @@ export default function LobbyPage() {
                 </Card>
               </div>
 
+              {/* ROFL Test Match Option */}
+              <div className="border-t border-warm-gray-700 pt-6">
+                <Card variant="default" className="p-6 border-2 border-sage-500/50">
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h3 className="text-xl font-semibold text-foreground flex items-center gap-2">
+                        <Trophy className="w-6 h-6 text-sage-500" strokeWidth={2} />
+                        ROFL Test 1v1
+                        <span className="text-xs px-2 py-1 rounded-full bg-sage-500/20 text-sage-400">FREE</span>
+                      </h3>
+                      <p className="text-sm text-warm-gray-400 mt-1">
+                        Test battles computed in Oasis TEE (Trusted Execution Environment)
+                      </p>
+                    </div>
+                  </div>
+                  <Button
+                    onClick={handleJoinROFLTest}
+                    disabled={!socket.isConnected || queue.isQueuing || isWriting || isConfirming || paymentInProgress}
+                    variant="primary"
+                    size="md"
+                    isLoading={paymentInProgress || isWriting || isConfirming}
+                    className="w-full bg-sage-600 hover:bg-sage-700"
+                  >
+                    {paymentInProgress || isWriting || isConfirming
+                      ? 'Processing...'
+                      : queue.isQueuing
+                        ? 'In Queue...'
+                        : socket.isConnected
+                          ? 'Test ROFL Battle'
+                          : 'Connecting...'}
+                  </Button>
+                </Card>
+              </div>
+
               {!socket.isConnected && (
                 <motion.div
                   initial={{ opacity: 0 }}
@@ -508,20 +558,20 @@ export default function LobbyPage() {
               {process.env.NODE_ENV === 'development' && matchId && (
                 <Card variant="default" className="p-4 border-error">
                   <p className="text-error text-sm mb-3 font-semibold">
-                    You are currently in a match: {matchId.slice(0, 8)}...
+                    You are currently in a match: {String(matchId).slice(0, 8)}...
                   </p>
                   <Button
                     onClick={() => {
-                      if (confirm('Force end your active match? All players will be kicked to lobby.')) {
+                      if (confirm('Force end ALL active matches on the server? This will kick all players in all matches to lobby.')) {
                         socket.forceEndMatch();
-                        toast.success('Match force ended');
+                        toast.success('All matches force ended');
                       }
                     }}
                     variant="secondary"
                     size="sm"
                     className="w-full border-error hover:border-error hover:bg-error/10"
                   >
-                    Force End Active Match (DEV)
+                    Force End All Matches (DEV)
                   </Button>
                 </Card>
               )}

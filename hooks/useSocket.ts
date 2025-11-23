@@ -346,8 +346,8 @@ export function useSocket() {
   }, []);
 
   // Specific event emitters for better type safety and ease of use
-  const joinQueue = useCallback((entryFee: number, transactionHash?: string) => {
-    return emit('JOIN_QUEUE', { entryFee, transactionHash });
+  const joinQueue = useCallback((entryFee: number, transactionHash?: string, matchType?: 'standard' | 'rofl-test') => {
+    return emit('JOIN_QUEUE', { entryFee, transactionHash, matchType });
   }, [emit]);
 
   const buyCard = useCallback((cardIndex: number) => {

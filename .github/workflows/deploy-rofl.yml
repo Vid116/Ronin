@@ -1,0 +1,53 @@
+name: Deploy ROFL to Oasis Testnet
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - 'rofl-service/**'
+      - '.github/workflows/deploy-rofl.yml'
+  workflow_dispatch:  # Allows manual triggering from GitHub UI
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Oasis CLI
+        run: |
+          curl -L -o oasis https://github.com/oasisprotocol/cli/releases/download/v0.8.1/oasis_0.8.1_linux_amd64
+          chmod +x oasis
+          sudo mv oasis /usr/local/bin/
+          oasis --version
+
+      - name: Build ROFL bundle
+        working-directory: ./rofl-service
+        run: |
+          oasis rofl build --force
+
+      - name: Deploy to Oasis Testnet
+        working-directory: ./rofl-service
+        env:
+          OASIS_WALLET_PRIVATE_KEY: ${{ secrets.OASIS_WALLET_PRIVATE_KEY }}
+        run: |
+          # Deploy to testnet
+          oasis rofl deploy --network testnet
+
+      - name: Get ROFL Endpoint
+        working-directory: ./rofl-service
+        run: |
+          # Show the ROFL app info
+          oasis rofl show --network testnet
+
+          echo "====================================="
+          echo "ROFL Service deployed successfully!"
+          echo "====================================="
+          echo "Copy the ROFL endpoint URL from the output above"
+          echo "and update your .env file with:"
+          echo "ROFL_ENDPOINT=https://[your-rofl-endpoint]"
+          echo "====================================="

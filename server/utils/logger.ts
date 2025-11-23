@@ -98,7 +98,7 @@ export function log(level: LogLevel, message: string, context?: LogContext, data
     contextParts.push(`${colors.yellow}Socket: ${truncateSocket(context.socketId)}${colors.reset}`);
   }
   if (context?.matchId) {
-    contextParts.push(`${colors.green}Match: ${context.matchId.slice(0, 12)}${colors.reset}`);
+    contextParts.push(`${colors.green}Match: ${String(context.matchId).slice(0, 12)}${colors.reset}`);
   }
 
   const contextStr = contextParts.length > 0 ? ` | ${contextParts.join(' | ')}` : '';

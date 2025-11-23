@@ -1,0 +1,13 @@
+{
+  "matchId": "test-123",
+  "round": 1,
+  "board1": {
+    "units": [null, null, null, null, null, null, null, null]
+  },
+  "board2": {
+    "units": [null, null, null, null, null, null, null, null]
+  },
+  "player1Address": "0x1111111111111111111111111111111111111111",
+  "player2Address": "0x2222222222222222222222222222222222222222",
+  "seed": 12345
+}

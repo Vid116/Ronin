@@ -50,3 +50,4 @@ coverage.json
 # Deployment files (optional - remove if you want to track them)
 deployment.json
 contract-abis.json
+*.orc
