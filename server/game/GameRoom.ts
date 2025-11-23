@@ -7,6 +7,7 @@ import { StateSync, PlayerGameState } from './StateSync';
 import { CombatSimulator } from './CombatSimulator';
 import { BotPlayer, createBotPlayers } from './BotPlayer';
 import { ContractService } from '../services/ContractService';
+import { ROFLClient, createROFLClient, type ROFLBattleRequest } from '../services/ROFLClient';
 
 interface QueuedPlayer {
   socketId: string;
@@ -26,6 +27,7 @@ export class GameRoom {
   // Blockchain integration
   private contractService: ContractService | null;
   private blockchainMatchId: number | null;
+  private expectedPlayerCount: number;
 
   // Player management
   private players: Map<string, Player>; // wallet address → Player
@@ -52,17 +54,32 @@ export class GameRoom {
   private isMatchComplete: boolean = false;
   private eliminatedPlayers: Set<string>;
 
+  // ROFL integration for paid matches
+  private roflClient: ROFLClient | null;
+  private entryFee: number;
+
   constructor(
     matchId: string,
     queuedPlayers: QueuedPlayer[],
     io: SocketIOServer,
     contractService: ContractService | null = null,
-    blockchainMatchId: number | null = null
+    blockchainMatchId: number | null = null,
+    expectedPlayerCount: number = 6
   ) {
     this.matchId = matchId;
     this.io = io;
     this.contractService = contractService;
     this.blockchainMatchId = blockchainMatchId;
+    this.expectedPlayerCount = expectedPlayerCount;
+
+    // Store entry fee (use first player's entry fee - they should all be the same)
+    this.entryFee = queuedPlayers[0]?.entryFee || 0;
+
+    // Initialize ROFL client for paid matches
+    this.roflClient = this.entryFee > 0 ? createROFLClient() : null;
+    if (this.roflClient && this.entryFee > 0) {
+      console.log(`[ROFL] Match ${matchId} is a paid match (fee: ${this.entryFee}) - ROFL enabled`);
+    }
 
     // Initialize systems
     this.shopGenerator = new ShopGenerator();
@@ -163,7 +180,7 @@ export class GameRoom {
   /**
    * Handle phase changes
    */
-  private handlePhaseChange(phase: GamePhase, round: number): void {
+  private async handlePhaseChange(phase: GamePhase, round: number): Promise<void> {
     console.log(`\n🎮 Match ${this.matchId}: Round ${round}, Phase ${phase}`);
     console.log(`👥 Active players: ${this.getActivePlayerIds().length}`);
 
@@ -172,7 +189,7 @@ export class GameRoom {
       this.handlePlanningPhase(round);
     } else if (phase === 'COMBAT') {
       console.log(`➡️ Handling COMBAT phase`);
-      this.handleCombatPhase(round);
+      await this.handleCombatPhase(round);
     } else if (phase === 'TRANSITION') {
       console.log(`➡️ Handling TRANSITION phase`);
       this.handleTransitionPhase(round);
@@ -297,7 +314,7 @@ export class GameRoom {
   /**
    * Handle combat phase
    */
-  private handleCombatPhase(round: number): void {
+  private async handleCombatPhase(round: number): Promise<void> {
     console.log(`⚔️ Starting combat phase for round ${round}`);
 
     // Pair opponents (uses wallet addresses)
@@ -306,21 +323,23 @@ export class GameRoom {
 
     console.log(`📡 Running combat for ${activeWallets.length} players`);
 
-    // Broadcast phase change to ALL players BEFORE running individual combats
+    // Run combat for each pairing FIRST (sends COMBAT_START and COMBAT_BOARDS)
+    for (const [playerWallet, opponentWallet] of pairings.entries()) {
+      await this.runCombat(playerWallet, opponentWallet);
+    }
+
+    // Broadcast phase change to ALL players AFTER combat data is sent
+    // This ensures combatInitialBoards is available when UI renders
     const timeRemaining = this.roundManager.getTimeRemaining();
     this.stateSync.syncPhaseChange(activeWallets, 'COMBAT', round, timeRemaining);
-    console.log(`📡 Broadcast COMBAT phase to ${activeWallets.length} players`);
-
-    // Run combat for each pairing (COMBAT_START event sent in runCombat)
-    pairings.forEach((opponentWallet, playerWallet) => {
-      this.runCombat(playerWallet, opponentWallet);
-    });
+    console.log(`📡 Broadcast COMBAT phase to ${activeWallets.length} players (after combat data sent)`);
   }
 
   /**
    * Run combat between two players (by wallet address)
+   * For paid matches, routes to ROFL service. For free matches, uses local engine.
    */
-  private runCombat(playerWallet: string, opponentWallet: string): void {
+  private async runCombat(playerWallet: string, opponentWallet: string): Promise<void> {
     const player = this.players.get(playerWallet);
     const opponent = this.players.get(opponentWallet);
     const playerBoard = this.playerBoards.get(playerWallet);
@@ -347,16 +366,48 @@ export class GameRoom {
     const timeRemaining = this.roundManager.getTimeRemaining();
     this.stateSync.syncCombatStart(playerSocketId, opponentState, timeRemaining);
 
-    // Simulate combat (pass round number and player info for ROFL)
+    // Simulate combat - route to ROFL for paid matches, local for free matches
     const currentRound = this.roundManager.getCurrentRound();
-    const result = this.combatSimulator.simulateCombat(
-      playerBoard,
-      opponentBoard,
-      currentRound,
-      playerWallet,
-      opponentWallet,
-      this.matchId
-    );
+    let result;
+
+    if (this.roflClient && this.entryFee > 0) {
+      // PAID MATCH: Use ROFL service for trustless computation
+      console.log(`[ROFL] Computing battle via ROFL for paid match`);
+
+      try {
+        result = await this.computeBattleViaROFL(
+          playerBoard,
+          opponentBoard,
+          currentRound,
+          playerWallet,
+          opponentWallet
+        );
+        console.log(`[ROFL] Battle computed successfully via ROFL`);
+      } catch (error) {
+        console.error(`[ROFL] Battle computation failed:`, error);
+        // For paid matches, we MUST use ROFL - if it fails, we cannot continue
+        // Notify players and cancel the match
+        this.io.to(playerSocketId).emit('server_event', {
+          type: 'ERROR',
+          data: {
+            message: 'Battle service unavailable. Match will be cancelled and refunded.',
+            error: error instanceof Error ? error.message : 'Unknown error'
+          }
+        });
+        throw error; // This will stop the match
+      }
+    } else {
+      // FREE MATCH: Use local combat simulator
+      console.log(`[LOCAL] Computing battle via local engine for free match`);
+      result = this.combatSimulator.simulateCombat(
+        playerBoard,
+        opponentBoard,
+        currentRound,
+        playerWallet,
+        opponentWallet,
+        this.matchId
+      );
+    }
 
     console.log(`📊 Combat Result:`, {
       player: playerWallet.substring(0, 8),
@@ -437,8 +488,12 @@ export class GameRoom {
     const timeRemaining = this.roundManager.getTimeRemaining();
     this.stateSync.syncPhaseChange(activeWallets, 'TRANSITION', round, timeRemaining);
 
-    // Check for match end
-    if (activeWallets.length <= 1) {
+    // Check for match end - only end if one or fewer players have HP > 0
+    const playersWithHealth = Array.from(this.players.values()).filter(
+      p => p.health > 0 && !this.eliminatedPlayers.has(p.id)
+    );
+
+    if (playersWithHealth.length <= 1) {
       this.endMatch();
     } else {
       // Start next round after transition
@@ -804,12 +859,9 @@ export class GameRoom {
     this.disconnectedPlayers.add(walletAddress);
     console.log(`Player ${walletAddress} (socket: ${socketId}) disconnected from match ${this.matchId}`);
 
-    // Give players 60 seconds to reconnect before elimination
-    setTimeout(() => {
-      if (this.disconnectedPlayers.has(walletAddress)) {
-        this.eliminatePlayer(walletAddress);
-      }
-    }, 60000); // 60 second grace period
+    // Disconnected players remain in the match with their frozen board
+    // They cannot take actions but combat continues normally
+    // Match only ends when a player's HP reaches 0 through combat damage
   }
 
   /**
@@ -831,8 +883,12 @@ export class GameRoom {
     const allSocketIds = Array.from(this.walletToSocket.values());
     this.stateSync.syncPlayerEliminated(allSocketIds, player.id);
 
-    // Check for match end
-    if (activeWallets.length <= 1) {
+    // Check for match end - only end if one or fewer players have HP > 0
+    const playersWithHealth = Array.from(this.players.values()).filter(
+      p => p.health > 0 && !this.eliminatedPlayers.has(p.id)
+    );
+
+    if (playersWithHealth.length <= 1) {
       this.endMatch();
     }
   }
@@ -872,9 +928,9 @@ export class GameRoom {
         const sortedPlayers = Array.from(this.players.values())
           .sort((a, b) => (a.placement || 999) - (b.placement || 999));
 
-        // Ensure we have exactly 6 players
-        if (sortedPlayers.length !== 6) {
-          throw new Error(`Invalid player count: ${sortedPlayers.length}. Expected 6.`);
+        // Ensure we have the expected number of players
+        if (sortedPlayers.length !== this.expectedPlayerCount) {
+          throw new Error(`Invalid player count: ${sortedPlayers.length}. Expected ${this.expectedPlayerCount}.`);
         }
 
         // Extract wallet addresses and placements
@@ -904,6 +960,18 @@ export class GameRoom {
         );
 
         console.log(`   ✅ Match results submitted successfully`);
+
+        // Verify results were recorded on-chain
+        try {
+          const matchData = await this.contractService.getMatch(this.blockchainMatchId);
+          if (!matchData.finalized) {
+            throw new Error('Match was not finalized on-chain after submission');
+          }
+          console.log(`   ✅ Match finalization verified on-chain`);
+        } catch (verifyError: any) {
+          console.error(`   ⚠️ Could not verify match finalization:`, verifyError.message);
+          // Continue anyway - the submission succeeded
+        }
 
         // Notify players that prizes are claimable
         const allSocketIds = Array.from(this.walletToSocket.values());
@@ -1279,6 +1347,134 @@ export class GameRoom {
     this.cleanup();
 
     console.log(`✅ DEV: Match ${this.matchId} force completed`);
+  }
+
+  /**
+   * Compute battle via ROFL service (for paid matches)
+   */
+  private async computeBattleViaROFL(
+    playerBoard: Board,
+    opponentBoard: Board,
+    round: number,
+    playerWallet: string,
+    opponentWallet: string
+  ): Promise<any> {
+    if (!this.roflClient) {
+      throw new Error('ROFL client not initialized');
+    }
+
+    // Generate deterministic seed from match data
+    const seed = this.generateBattleSeed(round, playerWallet, opponentWallet);
+
+    // Convert boards to ROFL format
+    const roflBoard1 = this.convertBoardToROFL(playerBoard);
+    const roflBoard2 = this.convertBoardToROFL(opponentBoard);
+
+    // Create ROFL battle request
+    const request: ROFLBattleRequest = {
+      matchId: this.matchId,
+      round,
+      board1: roflBoard1,
+      board2: roflBoard2,
+      player1Address: playerWallet,
+      player2Address: opponentWallet,
+      seed,
+    };
+
+    // Call ROFL service
+    const roflResponse = await this.roflClient.computeBattle(request);
+
+    // Convert ROFL response to local combat result format
+    const result = {
+      winner: roflResponse.winner === 'player1' ? 'player' : roflResponse.winner === 'player2' ? 'opponent' : 'draw',
+      damageDealt: roflResponse.damageToLoser,
+      playerUnitsRemaining: this.countUnits(roflResponse.finalBoard1),
+      opponentUnitsRemaining: this.countUnits(roflResponse.finalBoard2),
+      initialBoard1: roflBoard1,
+      initialBoard2: roflBoard2,
+      finalBoard1: roflResponse.finalBoard1,
+      finalBoard2: roflResponse.finalBoard2,
+      combatLog: roflResponse.events,
+      seed: roflResponse.seed,
+      roflSignature: roflResponse.signature,
+      roflResultHash: roflResponse.resultHash,
+    };
+
+    return result;
+  }
+
+  /**
+   * Generate deterministic battle seed
+   */
+  private generateBattleSeed(round: number, player1: string, player2: string): number {
+    // Create deterministic seed from match data
+    const data = `${this.matchId}-${round}-${player1}-${player2}`;
+    let hash = 0;
+    for (let i = 0; i < data.length; i++) {
+      const char = data.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32-bit integer
+    }
+    return Math.abs(hash);
+  }
+
+  /**
+   * Convert game Board to ROFL CombatBoard format
+   */
+  private convertBoardToROFL(board: Board): any {
+    const units: any[] = new Array(8).fill(null);
+
+    // Top row (positions 0-3)
+    board.top.forEach((unit, index) => {
+      if (unit) {
+        units[index] = {
+          id: unit.id,
+          name: unit.name,
+          tier: unit.tier,
+          attack: unit.attack,
+          health: unit.health,
+          stars: unit.stars || 1,
+          ability: {
+            name: unit.ability || 'None',
+            trigger: 'passive',
+            effect: 'None'
+          },
+          dodgeChance: 0,
+          critChance: 0,
+        };
+      }
+    });
+
+    // Bottom row (positions 4-7)
+    board.bottom.forEach((unit, index) => {
+      if (unit) {
+        units[index + 4] = {
+          id: unit.id,
+          name: unit.name,
+          tier: unit.tier,
+          attack: unit.attack,
+          health: unit.health,
+          stars: unit.stars || 1,
+          ability: {
+            name: unit.ability || 'None',
+            trigger: 'passive',
+            effect: 'None'
+          },
+          dodgeChance: 0,
+          critChance: 0,
+        };
+      }
+    });
+
+    return { units };
+  }
+
+  /**
+   * Count units in ROFL board
+   */
+  private countUnits(roflBoard: any): number {
+    if (!roflBoard || !roflBoard.units) return 0;
+    return roflBoard.units.filter((u: any) => u !== null).length;
   }
 
   /**

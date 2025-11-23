@@ -1,0 +1,11 @@
+services:
+  battle-service:
+    build: .
+    image: "ghcr.io/roninrumble/rofl-battle:latest"
+    platform: linux/amd64
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+    restart: unless-stopped
