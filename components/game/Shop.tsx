@@ -3,6 +3,8 @@
 import { motion } from 'framer-motion';
 import { Shop as ShopType, Unit } from '@/types/game';
 import { Card } from './Card';
+import { Store, RefreshCw, Coins, Lock, Lightbulb } from 'lucide-react';
+import { Button } from '@/components/ui/Button';
 
 interface ShopProps {
   shop: ShopType;
@@ -16,37 +18,32 @@ export function Shop({ shop, playerGold, onBuyCard, onReroll, disabled = false }
   const canReroll = shop.freeRerolls > 0 || playerGold >= shop.rerollCost;
 
   return (
-    <div className="bg-gray-800/50 backdrop-blur rounded-lg p-4 border border-gray-700">
+    <div className="bg-surface rounded-lg p-4 border-2 border-warm-gray-700">
       {/* Shop Header */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
-          <span className="text-lg font-bold text-white">🏪 Shop</span>
-          <span className="text-sm text-gray-400">
+          <Store className="w-5 h-5 text-sage-500" strokeWidth={2} />
+          <span className="text-lg font-semibold text-foreground">Shop</span>
+          <span className="text-sm text-warm-gray-400">
             ({shop.cards.length}/5)
           </span>
         </div>
 
         {/* Reroll Button */}
-        <motion.button
-          whileHover={canReroll && !disabled ? { scale: 1.05 } : {}}
-          whileTap={canReroll && !disabled ? { scale: 0.95 } : {}}
+        <Button
           onClick={onReroll}
           disabled={!canReroll || disabled}
-          className={`
-            px-4 py-2 rounded-lg font-bold text-sm transition-all
-            ${canReroll && !disabled
-              ? 'bg-blue-600 hover:bg-blue-700 text-white'
-              : 'bg-gray-700 text-gray-500 cursor-not-allowed'
-            }
-          `}
+          variant="secondary"
+          size="sm"
         >
-          🔄 Reroll
+          <RefreshCw className="w-4 h-4 mr-1" strokeWidth={2} />
+          Reroll
           {shop.freeRerolls > 0 ? (
-            <span className="ml-1 text-green-400">(Free x{shop.freeRerolls})</span>
+            <span className="ml-1 text-success">(Free x{shop.freeRerolls})</span>
           ) : (
-            <span className="ml-1 text-yellow-400">({shop.rerollCost}💰)</span>
+            <span className="ml-1 text-warm-gray-400">({shop.rerollCost})</span>
           )}
-        </motion.button>
+        </Button>
       </div>
 
       {/* Shop Cards */}
@@ -68,8 +65,8 @@ export function Shop({ shop, playerGold, onBuyCard, onReroll, disabled = false }
 
               {/* Buy Overlay */}
               {canAfford && !disabled && (
-                <div className="absolute inset-0 bg-green-500/0 hover:bg-green-500/20 rounded-lg transition-all pointer-events-none">
-                  <div className="absolute bottom-2 left-1/2 transform -translate-x-1/2 text-xs font-bold text-white bg-green-600 px-2 py-1 rounded opacity-0 group-hover:opacity-100">
+                <div className="absolute inset-0 bg-success/0 hover:bg-success/10 rounded-lg transition-all pointer-events-none border-2 border-transparent hover:border-success">
+                  <div className="absolute bottom-2 left-1/2 transform -translate-x-1/2 text-xs font-semibold text-foreground bg-success px-2 py-1 rounded opacity-0 group-hover:opacity-100">
                     Click to Buy
                   </div>
                 </div>
@@ -77,9 +74,9 @@ export function Shop({ shop, playerGold, onBuyCard, onReroll, disabled = false }
 
               {/* Can't Afford Overlay */}
               {!canAfford && (
-                <div className="absolute inset-0 bg-red-500/20 rounded-lg pointer-events-none">
+                <div className="absolute inset-0 bg-error/10 rounded-lg pointer-events-none border-2 border-error/50">
                   <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">
-                    <span className="text-2xl">🔒</span>
+                    <Lock className="w-6 h-6 text-error" strokeWidth={2} />
                   </div>
                 </div>
               )}
@@ -91,17 +88,26 @@ export function Shop({ shop, playerGold, onBuyCard, onReroll, disabled = false }
         {[...Array(5 - shop.cards.length)].map((_, i) => (
           <div
             key={`empty-${i}`}
-            className="w-24 h-32 rounded-lg border-2 border-dashed border-gray-700 bg-gray-800/30 flex items-center justify-center text-gray-600"
+            className="w-24 h-32 rounded-lg border-2 border-dashed border-warm-gray-700 bg-surface-light flex items-center justify-center"
           >
-            <span className="text-xs">Empty</span>
+            <span className="text-xs text-warm-gray-500">Empty</span>
           </div>
         ))}
       </div>
 
       {/* Shop Info */}
-      <div className="mt-3 flex justify-between items-center text-xs text-gray-500">
-        <span>💡 Cards refresh each round</span>
-        <span>Your Gold: <span className="text-yellow-400 font-bold">{playerGold}💰</span></span>
+      <div className="mt-3 flex justify-between items-center text-xs text-warm-gray-400">
+        <span className="flex items-center gap-1">
+          <Lightbulb className="w-3 h-3" strokeWidth={2} />
+          Cards refresh each round
+        </span>
+        <span className="flex items-center gap-1">
+          Your Gold:
+          <span className="text-warning font-semibold flex items-center gap-0.5">
+            <Coins className="w-3 h-3" strokeWidth={2} />
+            {playerGold}
+          </span>
+        </span>
       </div>
     </div>
   );

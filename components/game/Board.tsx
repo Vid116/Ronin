@@ -4,6 +4,7 @@ import { useDrop } from 'react-dnd';
 import { motion } from 'framer-motion';
 import { Board as BoardType, Unit } from '@/types/game';
 import { Card } from './Card';
+import { Shield, Swords, Check, MoveDown } from 'lucide-react';
 
 interface BoardProps {
   board: BoardType;
@@ -47,14 +48,14 @@ export function Board({
         key={`${row}-${position}`}
         className={`
           relative rounded-lg border-2 transition-all
-          ${card ? 'bg-transparent' : 'bg-gray-800/30'}
-          ${isOver && canDrop ? 'border-green-400 bg-green-400/20' : ''}
-          ${!isOver && canDrop && hasSelection ? 'border-yellow-400 border-dashed animate-pulse' : ''}
-          ${!isOver && canDrop && !hasSelection ? 'border-gray-600 border-dashed' : ''}
-          ${!canDrop && card && !isSelected ? 'border-purple-500/50' : ''}
-          ${isSelected ? 'border-purple-500 border-4 ring-2 ring-purple-400' : 'border-gray-700'}
-          ${isInteractive && !card && hasSelection ? 'hover:border-yellow-500 cursor-pointer' : ''}
-          ${isInteractive && !card && !hasSelection ? 'hover:border-gray-500' : ''}
+          ${card ? 'bg-transparent' : 'bg-surface'}
+          ${isOver && canDrop ? 'border-success bg-success/10' : ''}
+          ${!isOver && canDrop && hasSelection ? 'border-warning border-dashed animate-pulse' : ''}
+          ${!isOver && canDrop && !hasSelection ? 'border-warm-gray-600 border-dashed' : ''}
+          ${!canDrop && card && !isSelected ? 'border-sage-500/50' : ''}
+          ${isSelected ? 'border-sage-500 ring-2 ring-sage-400' : 'border-warm-gray-700'}
+          ${isInteractive && !card && hasSelection ? 'hover:border-warning cursor-pointer' : ''}
+          ${isInteractive && !card && !hasSelection ? 'hover:border-warm-gray-600' : ''}
           ${isInteractive && card ? 'cursor-pointer' : ''}
           w-24 h-32
         `}
@@ -68,8 +69,8 @@ export function Board({
         whileHover={isInteractive ? { scale: 1.02 } : {}}
       >
         {/* Position Number */}
-        <div className={`absolute -top-2 -left-2 w-6 h-6 bg-gray-900 border rounded-full flex items-center justify-center text-xs font-bold z-10 ${
-          isSelected ? 'border-purple-500 text-purple-400' : 'border-gray-600 text-gray-400'
+        <div className={`absolute -top-2 -left-2 w-6 h-6 bg-background border-2 rounded-full flex items-center justify-center text-xs font-semibold z-10 ${
+          isSelected ? 'border-sage-500 text-sage-500' : 'border-warm-gray-600 text-warm-gray-400'
         }`}>
           {position + 1}
         </div>
@@ -87,8 +88,12 @@ export function Board({
 
         {/* Empty Slot Indicator */}
         {!card && isInteractive && (
-          <div className="absolute inset-0 flex items-center justify-center text-gray-600 text-xs">
-            {isOver && canDrop ? '✓' : hasSelection ? '👆' : ''}
+          <div className="absolute inset-0 flex items-center justify-center">
+            {isOver && canDrop ? (
+              <Check className="w-6 h-6 text-success" strokeWidth={2} />
+            ) : hasSelection ? (
+              <MoveDown className="w-6 h-6 text-warning" strokeWidth={2} />
+            ) : null}
           </div>
         )}
       </motion.div>
@@ -99,10 +104,20 @@ export function Board({
     <div className="space-y-3">
       {/* Board Label */}
       <div className="flex items-center justify-between mb-2">
-        <span className="text-sm font-bold text-gray-400">
-          {isPlayerBoard ? '🛡️ Your Board' : '⚔️ Enemy Board'}
+        <span className="text-sm font-semibold text-foreground flex items-center gap-1">
+          {isPlayerBoard ? (
+            <>
+              <Shield className="w-4 h-4 text-sage-500" strokeWidth={2} />
+              Your Board
+            </>
+          ) : (
+            <>
+              <Swords className="w-4 h-4 text-error" strokeWidth={2} />
+              Enemy Board
+            </>
+          )}
         </span>
-        <span className="text-xs text-gray-500">
+        <span className="text-xs text-warm-gray-400">
           {[...board.top, ...board.bottom].filter(Boolean).length}/8 units
         </span>
       </div>
