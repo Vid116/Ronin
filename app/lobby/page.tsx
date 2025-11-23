@@ -7,8 +7,12 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useGame } from '@/hooks/useGame';
 import { usePlayerStore } from '@/store/playerStore';
 import { useGameStore } from '@/store/gameStore';
-import { useContract } from '@/hooks/useContract';
+import { useContract, usePlayerBalance } from '@/hooks/useContract';
 import toast from 'react-hot-toast';
+import { formatEther } from 'viem';
+import { Swords, ArrowLeft, Wallet, Trophy, Users, Clock, Grid3x3, Timer, Bot, X, Loader2 } from 'lucide-react';
+import { Button } from '@/components/ui/Button';
+import { Card } from '@/components/ui/Card';
 
 export default function LobbyPage() {
   const router = useRouter();
@@ -19,10 +23,29 @@ export default function LobbyPage() {
   const { queue, joinQueue, leaveQueue, updateQueueCount } = usePlayerStore();
   const matchId = useGameStore((state) => state.matchId);
   const pendingPayment = useGameStore((state) => state.pendingPayment);
-  const { joinMatch, isWriting, isConfirming, isConfirmed, txHash } = useContract();
+  const { joinMatch, claimRewards, isWriting, isConfirming, isConfirmed, txHash } = useContract();
+  const { balance: claimableBalance, isLoading: isLoadingBalance } = usePlayerBalance(address);
 
   const [timeInQueue, setTimeInQueue] = useState(0);
   const [paymentInProgress, setPaymentInProgress] = useState(false);
+  const [playersPerMatch, setPlayersPerMatch] = useState(6); // Default to 6, fetched from server
+
+  // Fetch server config
+  useEffect(() => {
+    const fetchConfig = async () => {
+      try {
+        const serverUrl = process.env.NEXT_PUBLIC_SERVER_URL || 'http://localhost:3001';
+        const response = await fetch(`${serverUrl}/api/config`);
+        if (response.ok) {
+          const config = await response.json();
+          setPlayersPerMatch(config.playersPerMatch);
+        }
+      } catch (error) {
+        console.error('Failed to fetch server config:', error);
+      }
+    };
+    fetchConfig();
+  }, []);
 
   // Redirect if not connected
   useEffect(() => {
@@ -54,17 +77,18 @@ export default function LobbyPage() {
     if (queue.isQueuing) {
       const interval = setInterval(() => {
         const currentCount = queue.playersInQueue;
-        if (currentCount < 6) {
-          updateQueueCount(Math.min(currentCount + Math.floor(Math.random() * 2), 6));
+        if (currentCount < playersPerMatch) {
+          updateQueueCount(Math.min(currentCount + Math.floor(Math.random() * 2), playersPerMatch));
         }
       }, 3000);
       return () => clearInterval(interval);
     }
-  }, [queue.isQueuing, queue.playersInQueue, updateQueueCount]);
+  }, [queue.isQueuing, queue.playersInQueue, updateQueueCount, playersPerMatch]);
 
   // Handle payment transaction confirmation
   useEffect(() => {
-    if (isConfirmed && paymentInProgress && txHash && pendingPayment) {
+    if (isConfirmed && txHash && pendingPayment && paymentInProgress) {
+      console.log('✅ Payment confirmed, submitting to server:', txHash);
       setPaymentInProgress(false);
 
       // Submit payment to server
@@ -75,7 +99,16 @@ export default function LobbyPage() {
         toast.error('Failed to submit payment');
       }
     }
-  }, [isConfirmed, paymentInProgress, txHash, socket, pendingPayment]);
+  }, [isConfirmed, txHash, pendingPayment, paymentInProgress, socket]);
+
+  // Auto-trigger payment when AWAITING_PAYMENT event is received
+  useEffect(() => {
+    if (pendingPayment && !paymentInProgress && !txHash) {
+      console.log('💰 Payment required, automatically triggering payment modal');
+      // Payment modal is already shown by the pendingPayment state
+      // User must click the "Pay" button manually
+    }
+  }, [pendingPayment, paymentInProgress, txHash]);
 
   const handleJoinQueue = async () => {
     if (!socket.isConnected) {
@@ -151,7 +184,6 @@ export default function LobbyPage() {
   // Calculate prizes based on contract prize distribution
   // 72% first, 18% second, 10% third (after 8.3% platform fee)
   // Note: Players per match can be configured via PLAYERS_PER_MATCH env var
-  const playersPerMatch = 6; // TODO: Get from server config
   const calculatePrizes = (entryFee: number) => {
     if (entryFee === 0) {
       return { first: 'Glory', second: 'Honor', third: 'Experience' };
@@ -171,26 +203,38 @@ export default function LobbyPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-900 to-gray-800">
+    <div className="min-h-screen bg-background">
       {/* Header */}
-      <header className="flex justify-between items-center p-6 border-b border-gray-700">
+      <header className="flex justify-between items-center p-6 border-b border-warm-gray-700">
         <button
           onClick={() => router.push('/')}
-          className="flex items-center gap-2 text-gray-400 hover:text-white transition-colors"
+          className="flex items-center gap-3 text-warm-gray-400 hover:text-foreground transition-colors"
         >
-          <span>←</span>
-          <span className="text-2xl">⚔️</span>
-          <h1 className="text-2xl font-bold text-white">Ronin Rumble</h1>
+          <ArrowLeft className="w-5 h-5" strokeWidth={2} />
+          <Swords className="w-6 h-6 text-sage-500" strokeWidth={2} />
+          <h1 className="text-2xl font-semibold text-foreground">Ronin Rumble</h1>
         </button>
         <div className="flex items-center gap-4">
+          {/* Claimable Balance Display */}
+          {claimableBalance && claimableBalance > 0n && (
+            <Card variant="bordered" className="flex items-center gap-3 px-4 py-2">
+              <Wallet className="w-5 h-5 text-warning" strokeWidth={2} />
+              <div>
+                <div className="text-xs text-warm-gray-400">Claimable Prizes</div>
+                <div className="font-semibold text-foreground">
+                  {formatEther(claimableBalance)} RON
+                </div>
+              </div>
+            </Card>
+          )}
           {/* Connection Indicator */}
-          <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-800 rounded-lg border border-gray-700">
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-surface rounded-lg border border-warm-gray-700">
             <div
               className={`w-2 h-2 rounded-full ${
-                socket.isConnected ? 'bg-green-500' : 'bg-red-500'
+                socket.isConnected ? 'bg-success' : 'bg-error'
               }`}
             />
-            <span className="text-xs text-gray-400">
+            <span className="text-xs text-warm-gray-400">
               {socket.isConnected ? 'Connected' : 'Disconnected'}
             </span>
           </div>
@@ -212,51 +256,56 @@ export default function LobbyPage() {
               {/* Finding Match Animation */}
               <motion.div
                 animate={{ rotate: 360 }}
-                transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
-                className="text-8xl mb-6"
+                transition={{ duration: 3, repeat: Infinity, ease: 'linear' }}
+                className="mb-8"
               >
-                ⚔️
+                <Swords className="w-20 h-20 mx-auto text-sage-500" strokeWidth={1.5} />
               </motion.div>
 
-              <h2 className="text-4xl font-bold mb-4 text-white">Finding Match...</h2>
-              <p className="text-xl text-gray-400 mb-8">
+              <h2 className="text-4xl font-semibold mb-4 text-foreground">Finding Match...</h2>
+              <p className="text-xl text-warm-gray-400 mb-8">
                 Queue time: {Math.floor(timeInQueue / 60)}:{(timeInQueue % 60).toString().padStart(2, '0')}
               </p>
 
               {/* Player Counter */}
               <div className="flex justify-center gap-3 mb-8">
-                {[...Array(6)].map((_, i) => (
-                  <motion.div
-                    key={i}
-                    initial={{ scale: 0 }}
-                    animate={{ scale: 1 }}
-                    transition={{ delay: i * 0.1 }}
-                    className={`
-                      w-16 h-16 rounded-full flex items-center justify-center text-2xl font-bold
-                      ${i < queue.playersInQueue
-                        ? 'bg-green-600 text-white'
-                        : 'bg-gray-700 text-gray-500'
-                      }
-                    `}
-                  >
-                    {i < queue.playersInQueue ? '✓' : i + 1}
-                  </motion.div>
-                ))}
+                {[...Array(playersPerMatch)].map((_, i) => {
+                  const isFilled = i < queue.playersInQueue;
+                  return (
+                    <motion.div
+                      key={i}
+                      initial={{ scale: 0 }}
+                      animate={{ scale: 1 }}
+                      transition={{ delay: i * 0.1 }}
+                      className={`
+                        w-16 h-16 rounded-lg flex items-center justify-center text-xl font-semibold border-2 transition-colors
+                        ${isFilled
+                          ? 'bg-surface border-sage-500 text-sage-500'
+                          : 'bg-surface border-warm-gray-700 text-warm-gray-600'
+                        }
+                      `}
+                    >
+                      {isFilled ? <Users className="w-6 h-6" strokeWidth={2} /> : i + 1}
+                    </motion.div>
+                  );
+                })}
               </div>
 
-              <p className="text-lg text-gray-300 mb-8">
-                <span className="text-green-400 font-bold">{queue.playersInQueue}</span>/6 Players Found
+              <p className="text-lg text-foreground mb-8">
+                <span className="text-sage-500 font-semibold">{queue.playersInQueue}</span>
+                <span className="text-warm-gray-400">/{playersPerMatch} Players Found</span>
               </p>
 
               {/* Cancel Button */}
-              <motion.button
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
+              <Button
                 onClick={handleLeaveQueue}
-                className="px-8 py-3 bg-red-600 hover:bg-red-700 rounded-lg font-bold text-white transition-all"
+                variant="secondary"
+                size="lg"
+                className="border-error hover:border-error hover:bg-error/10"
               >
+                <X className="w-5 h-5 mr-2" strokeWidth={2} />
                 Cancel Queue
-              </motion.button>
+              </Button>
             </motion.div>
           ) : (
             /* LOBBY INFO */
@@ -268,186 +317,213 @@ export default function LobbyPage() {
               className="space-y-6"
             >
               {/* Match Details */}
-              <div className="bg-gray-800/50 backdrop-blur rounded-lg p-6 border border-gray-700">
-                <h2 className="text-2xl font-bold mb-4 text-white">Match Details</h2>
+              <Card variant="default" className="p-6">
+                <h2 className="text-2xl font-semibold mb-4 text-foreground">Match Details</h2>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <span className="text-gray-400">Entry Fee:</span>
-                    <span className="ml-2 font-bold text-white">
+                    <span className="text-warm-gray-400">Entry Fee:</span>
+                    <span className="ml-2 font-semibold text-foreground">
                       {stake === 0 ? 'Free' : `${stake} RON`}
                     </span>
                   </div>
                   <div>
-                    <span className="text-gray-400">Prize Pool:</span>
-                    <span className="ml-2 font-bold text-white">
-                      {stake === 0 ? 'Practice' : `${stake * 6} RON`}
+                    <span className="text-warm-gray-400">Prize Pool:</span>
+                    <span className="ml-2 font-semibold text-foreground">
+                      {stake === 0 ? 'Practice' : `${stake * playersPerMatch} RON`}
                     </span>
                   </div>
                   <div>
-                    <span className="text-gray-400">Your Balance:</span>
-                    <span className="ml-2 font-bold text-yellow-400">
+                    <span className="text-warm-gray-400">Your Balance:</span>
+                    <span className="ml-2 font-semibold text-warning">
                       {balance || '0'} RON
                     </span>
                   </div>
                   <div>
-                    <span className="text-gray-400">Players:</span>
-                    <span className="ml-2 font-bold text-white">6</span>
+                    <span className="text-warm-gray-400">Players:</span>
+                    <span className="ml-2 font-semibold text-foreground">{playersPerMatch}</span>
                   </div>
                 </div>
-              </div>
+              </Card>
 
               {/* Rewards */}
-              <div className="bg-gray-800/50 backdrop-blur rounded-lg p-6 border border-gray-700">
-                <h3 className="text-xl font-bold mb-4 text-white">Rewards</h3>
+              <Card variant="default" className="p-6">
+                <h3 className="text-xl font-semibold mb-4 text-foreground">Rewards</h3>
                 <div className="space-y-3">
-                  <div className="flex justify-between items-center p-3 bg-yellow-900/20 border border-yellow-700 rounded-lg">
-                    <span className="font-bold text-yellow-400">1st Place</span>
-                    <span className="font-bold text-yellow-300 text-xl">{rewards?.first}</span>
+                  <div className="flex justify-between items-center p-3 bg-surface-light border-2 border-warning rounded-lg">
+                    <span className="font-semibold text-warm-gray-300 flex items-center gap-2">
+                      <Trophy className="w-4 h-4 text-warning" strokeWidth={2} />
+                      1st Place
+                    </span>
+                    <span className="font-semibold text-foreground text-lg">{rewards?.first}</span>
                   </div>
-                  <div className="flex justify-between items-center p-3 bg-gray-700/20 border border-gray-600 rounded-lg">
-                    <span className="font-bold text-gray-300">2nd Place</span>
-                    <span className="font-bold text-gray-200">{rewards?.second}</span>
+                  <div className="flex justify-between items-center p-3 bg-surface border border-warm-gray-700 rounded-lg">
+                    <span className="font-medium text-warm-gray-400">2nd Place</span>
+                    <span className="font-medium text-foreground">{rewards?.second}</span>
                   </div>
-                  <div className="flex justify-between items-center p-3 bg-orange-900/20 border border-orange-700 rounded-lg">
-                    <span className="font-bold text-orange-400">3rd Place</span>
-                    <span className="font-bold text-orange-300">{rewards?.third}</span>
+                  <div className="flex justify-between items-center p-3 bg-surface border border-warm-gray-700 rounded-lg">
+                    <span className="font-medium text-warm-gray-400">3rd Place</span>
+                    <span className="font-medium text-foreground">{rewards?.third}</span>
                   </div>
                 </div>
-              </div>
+              </Card>
 
               {/* Game Info */}
-              <div className="bg-gray-800/50 backdrop-blur rounded-lg p-6 border border-gray-700">
-                <h3 className="text-xl font-bold mb-4 text-white">Game Info</h3>
-                <div className="grid grid-cols-2 gap-3 text-sm">
-                  <div className="flex items-center gap-2">
-                    <span className="text-2xl">⚡</span>
+              <Card variant="default" className="p-6">
+                <h3 className="text-xl font-semibold mb-4 text-foreground">Game Info</h3>
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div className="flex items-center gap-3">
+                    <Clock className="w-5 h-5 text-sage-500" strokeWidth={2} />
                     <div>
-                      <div className="font-bold text-purple-400">10-15 Minutes</div>
-                      <div className="text-gray-500">Match Duration</div>
+                      <div className="font-semibold text-foreground">10-15 Minutes</div>
+                      <div className="text-warm-gray-500">Match Duration</div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-2xl">🎴</span>
+                  <div className="flex items-center gap-3">
+                    <Users className="w-5 h-5 text-sage-500" strokeWidth={2} />
                     <div>
-                      <div className="font-bold text-blue-400">30 Units</div>
-                      <div className="text-gray-500">5 Tiers</div>
+                      <div className="font-semibold text-foreground">30 Units</div>
+                      <div className="text-warm-gray-500">5 Tiers</div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-2xl">🎯</span>
+                  <div className="flex items-center gap-3">
+                    <Grid3x3 className="w-5 h-5 text-sage-500" strokeWidth={2} />
                     <div>
-                      <div className="font-bold text-green-400">8 Positions</div>
-                      <div className="text-gray-500">Tactical Grid</div>
+                      <div className="font-semibold text-foreground">8 Positions</div>
+                      <div className="text-warm-gray-500">Tactical Grid</div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-2xl">⏱️</span>
+                  <div className="flex items-center gap-3">
+                    <Timer className="w-5 h-5 text-sage-500" strokeWidth={2} />
                     <div>
-                      <div className="font-bold text-yellow-400">20 Seconds</div>
-                      <div className="text-gray-500">Per Planning Phase</div>
+                      <div className="font-semibold text-foreground">20 Seconds</div>
+                      <div className="text-warm-gray-500">Per Planning Phase</div>
                     </div>
                   </div>
                 </div>
-              </div>
+              </Card>
+
+              {/* Claim Rewards Button (if user has claimable balance) */}
+              {claimableBalance && claimableBalance > 0n && (
+                <Card variant="bordered" className="p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h3 className="text-2xl font-semibold text-foreground flex items-center gap-2">
+                        <Trophy className="w-6 h-6 text-warning" strokeWidth={2} />
+                        Prizes Ready to Claim!
+                      </h3>
+                      <p className="text-warm-gray-400 mt-1">
+                        You have {formatEther(claimableBalance)} RON waiting for you
+                      </p>
+                    </div>
+                  </div>
+                  <Button
+                    onClick={async () => {
+                      try {
+                        await claimRewards();
+                        toast.success('Claiming your prizes!');
+                      } catch (error) {
+                        console.error(error);
+                      }
+                    }}
+                    disabled={isWriting || isConfirming}
+                    variant="primary"
+                    size="lg"
+                    isLoading={isWriting || isConfirming}
+                    className="w-full"
+                  >
+                    {isWriting || isConfirming ? 'Processing...' : 'Claim Prizes'}
+                  </Button>
+                </Card>
+              )}
 
               {/* Action Buttons */}
               <div className="flex gap-4">
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
+                <Button
                   onClick={handleJoinQueue}
                   disabled={!socket.isConnected || isWriting || isConfirming || paymentInProgress}
-                  className={`
-                    flex-1 py-4 rounded-lg font-bold text-xl text-white transition-all
-                    ${socket.isConnected && !isWriting && !isConfirming && !paymentInProgress
-                      ? 'bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700'
-                      : 'bg-gray-700 cursor-not-allowed'
-                    }
-                  `}
+                  variant="primary"
+                  size="lg"
+                  isLoading={paymentInProgress || isWriting || isConfirming}
+                  className="flex-1"
                 >
                   {paymentInProgress || isWriting || isConfirming
                     ? 'Processing Transaction...'
                     : socket.isConnected
                       ? 'Find Match'
                       : 'Connecting...'}
-                </motion.button>
+                </Button>
 
-                <button
+                <Button
                   onClick={() => router.push('/')}
-                  className="px-8 py-4 bg-gray-700 hover:bg-gray-600 rounded-lg font-bold text-white transition-all"
+                  variant="ghost"
+                  size="lg"
                 >
                   Back
-                </button>
+                </Button>
               </div>
 
               {/* Bot Match Option */}
-              <div className="border-t border-gray-700 pt-6">
-                <div className="bg-gray-800/50 backdrop-blur rounded-lg p-6 border border-purple-700">
+              <div className="border-t border-warm-gray-700 pt-6">
+                <Card variant="default" className="p-6">
                   <div className="flex items-center justify-between mb-4">
                     <div>
-                      <h3 className="text-xl font-bold text-white flex items-center gap-2">
-                        <span className="text-2xl">🤖</span>
+                      <h3 className="text-xl font-semibold text-foreground flex items-center gap-2">
+                        <Bot className="w-6 h-6 text-sage-500" strokeWidth={2} />
                         Practice vs Bots
                       </h3>
-                      <p className="text-sm text-gray-400 mt-1">
+                      <p className="text-sm text-warm-gray-400 mt-1">
                         Play against AI opponents to test strategies
                       </p>
                     </div>
                   </div>
-                  <motion.button
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
+                  <Button
                     onClick={handleJoinBotMatch}
                     disabled={!socket.isConnected || isWriting || isConfirming || paymentInProgress}
-                    className={`
-                      w-full py-3 rounded-lg font-bold text-lg text-white transition-all
-                      ${socket.isConnected && !isWriting && !isConfirming && !paymentInProgress
-                        ? 'bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700'
-                        : 'bg-gray-700 cursor-not-allowed'
-                      }
-                    `}
+                    variant="secondary"
+                    size="md"
+                    isLoading={paymentInProgress || isWriting || isConfirming}
+                    className="w-full"
                   >
                     {paymentInProgress || isWriting || isConfirming
                       ? 'Processing Transaction...'
                       : socket.isConnected
                         ? 'Start Bot Match'
                         : 'Connecting...'}
-                  </motion.button>
-                </div>
+                  </Button>
+                </Card>
               </div>
 
               {!socket.isConnected && (
                 <motion.div
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
-                  className="text-center text-yellow-400 text-sm"
+                  className="text-center text-warning text-sm flex items-center justify-center gap-2"
                 >
+                  <Loader2 className="w-4 h-4 animate-spin" strokeWidth={2} />
                   Connecting to game server...
                 </motion.div>
               )}
 
               {/* DEV: Force End Match Button */}
               {process.env.NODE_ENV === 'development' && matchId && (
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  className="mt-6 p-4 bg-red-900/20 border border-red-500 rounded-lg"
-                >
-                  <p className="text-red-400 text-sm mb-3 font-semibold">
-                    ⚠️ You are currently in a match: {matchId.slice(0, 8)}...
+                <Card variant="default" className="p-4 border-error">
+                  <p className="text-error text-sm mb-3 font-semibold">
+                    You are currently in a match: {matchId.slice(0, 8)}...
                   </p>
-                  <button
+                  <Button
                     onClick={() => {
                       if (confirm('Force end your active match? All players will be kicked to lobby.')) {
                         socket.forceEndMatch();
                         toast.success('Match force ended');
                       }
                     }}
-                    className="w-full bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors"
+                    variant="secondary"
+                    size="sm"
+                    className="w-full border-error hover:border-error hover:bg-error/10"
                   >
                     Force End Active Match (DEV)
-                  </button>
-                </motion.div>
+                  </Button>
+                </Card>
               )}
             </motion.div>
           )}
@@ -466,45 +542,51 @@ export default function LobbyPage() {
                 initial={{ scale: 0.9, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
                 exit={{ scale: 0.9, opacity: 0 }}
-                className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-xl p-8 max-w-md w-full mx-4 border-2 border-yellow-500 shadow-2xl"
               >
-                <h2 className="text-3xl font-bold text-yellow-400 mb-4 text-center">
-                  Match Found!
-                </h2>
-                <p className="text-gray-300 mb-6 text-center">
-                  Pay entry fee to join the match
-                </p>
+                <Card variant="bordered" className="p-8 max-w-md w-full mx-4">
+                  <h2 className="text-3xl font-semibold text-foreground mb-2 text-center flex items-center justify-center gap-2">
+                    <Trophy className="w-8 h-8 text-warning" strokeWidth={2} />
+                    Match Found!
+                  </h2>
+                  <p className="text-warm-gray-400 mb-6 text-center">
+                    Pay entry fee to join the match
+                  </p>
 
-                <div className="bg-gray-700 rounded-lg p-6 mb-6">
-                  <div className="flex justify-between items-center mb-4">
-                    <span className="text-gray-400">Entry Fee:</span>
-                    <span className="text-2xl font-bold text-yellow-400">{pendingPayment.entryFee} RON</span>
+                  <div className="bg-surface rounded-lg p-6 mb-6 space-y-4 border border-warm-gray-700">
+                    <div className="flex justify-between items-center">
+                      <span className="text-warm-gray-400">Entry Fee:</span>
+                      <span className="text-2xl font-semibold text-foreground">{pendingPayment.entryFee} RON</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-warm-gray-400">Match ID:</span>
+                      <span className="text-foreground font-mono">#{pendingPayment.blockchainMatchId}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-warm-gray-400">Time Remaining:</span>
+                      <span className="text-error font-semibold flex items-center gap-1">
+                        <Timer className="w-4 h-4" strokeWidth={2} />
+                        {Math.max(0, Math.floor((pendingPayment.deadline - Date.now()) / 1000))}s
+                      </span>
+                    </div>
                   </div>
-                  <div className="flex justify-between items-center mb-4">
-                    <span className="text-gray-400">Match ID:</span>
-                    <span className="text-white font-mono">#{pendingPayment.blockchainMatchId}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-400">Time Remaining:</span>
-                    <span className="text-red-400 font-bold">
-                      {Math.max(0, Math.floor((pendingPayment.deadline - Date.now()) / 1000))}s
-                    </span>
-                  </div>
-                </div>
 
-                <button
-                  onClick={handlePayEntry}
-                  disabled={isWriting || isConfirming || paymentInProgress}
-                  className="w-full bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 disabled:from-gray-600 disabled:to-gray-700 text-white px-6 py-4 rounded-lg text-lg font-bold transition-all shadow-lg mb-3"
-                >
-                  {isWriting && 'Waiting for wallet...'}
-                  {isConfirming && 'Confirming transaction...'}
-                  {!isWriting && !isConfirming && `Pay ${pendingPayment.entryFee} RON`}
-                </button>
+                  <Button
+                    onClick={handlePayEntry}
+                    disabled={isWriting || isConfirming || paymentInProgress}
+                    variant="primary"
+                    size="lg"
+                    isLoading={isWriting || isConfirming}
+                    className="w-full mb-3"
+                  >
+                    {isWriting && 'Waiting for wallet...'}
+                    {isConfirming && 'Confirming transaction...'}
+                    {!isWriting && !isConfirming && `Pay ${pendingPayment.entryFee} RON`}
+                  </Button>
 
-                <p className="text-xs text-gray-400 text-center">
-                  All players must pay within the time limit for the match to start
-                </p>
+                  <p className="text-xs text-warm-gray-400 text-center">
+                    All players must pay within the time limit for the match to start
+                  </p>
+                </Card>
               </motion.div>
             </motion.div>
           )}

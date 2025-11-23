@@ -197,14 +197,14 @@ export interface Synergy {
   effect: string;
 }
 
-// Constants
+// Constants - Using border colors for tier system with natural palette
 export const TIER_COLORS: Record<number, string> = {
-  1: 'text-gray-400',
-  2: 'text-green-400',
-  3: 'text-blue-400',
-  4: 'text-purple-400',
-  5: 'text-yellow-400',
-  6: 'text-orange-400',
+  1: 'border-tier-1', // Common - warm gray
+  2: 'border-tier-2', // Uncommon - sage green
+  3: 'border-tier-3', // Rare - muted blue
+  4: 'border-tier-4', // Epic - muted purple
+  5: 'border-tier-5', // Legendary - warm gold
+  6: 'border-warning', // Ultra rare fallback
 };
 
 export const MAX_BOARD_SIZE = 8;

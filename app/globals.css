@@ -3,8 +3,48 @@
 @tailwind utilities;
 
 :root {
-  --background: #0a0a0a;
-  --foreground: #ededed;
+  /* Backgrounds - Dark warm gray with brown undertones */
+  --background: #1a1612;
+  --surface: #242018;
+  --surface-light: #2d2820;
+
+  /* Text colors */
+  --foreground: #f5f3f0;
+  --text-muted: #a8a299;
+
+  /* Sage green accent */
+  --sage-100: #f0f4f0;
+  --sage-200: #d9e3d8;
+  --sage-300: #b8cdb6;
+  --sage-400: #9db89a;
+  --sage-500: #8ba888;
+  --sage-600: #6d9169;
+  --sage-700: #567554;
+  --sage-800: #3f5a3d;
+
+  /* Warm grays */
+  --warm-gray-100: #f5f3f0;
+  --warm-gray-200: #e8e4df;
+  --warm-gray-300: #ccc7bf;
+  --warm-gray-400: #a8a299;
+  --warm-gray-500: #8a8479;
+  --warm-gray-600: #6b6660;
+  --warm-gray-700: #4d4842;
+  --warm-gray-800: #2d2820;
+  --warm-gray-900: #1a1612;
+
+  /* Tier colors - refined natural palette */
+  --tier-1: #8a8479; /* Common - warm gray */
+  --tier-2: #6d9169; /* Uncommon - sage green */
+  --tier-3: #7b8fa3; /* Rare - muted blue */
+  --tier-4: #9b7ba3; /* Epic - muted purple */
+  --tier-5: #c9a76a; /* Legendary - warm gold */
+
+  /* Semantic colors */
+  --success: #6d9169;
+  --warning: #c9a76a;
+  --error: #b87a7a;
+  --info: #7b8fa3;
 }
 
 body {

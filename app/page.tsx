@@ -4,12 +4,33 @@ import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useAccount } from 'wagmi';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { Swords, Clock, Users, Grid3x3, Trophy, Sparkles, Coins, Crown } from 'lucide-react';
+import { Button } from '@/components/ui/Button';
+import { Card } from '@/components/ui/Card';
 
 export default function Home() {
   const { address, isConnected } = useAccount();
   const router = useRouter();
   const [selectedStake, setSelectedStake] = useState<number>(0);
+  const [playersPerMatch, setPlayersPerMatch] = useState(6);
+
+  // Fetch server config
+  useEffect(() => {
+    const fetchConfig = async () => {
+      try {
+        const serverUrl = process.env.NEXT_PUBLIC_SERVER_URL || 'http://localhost:3001';
+        const response = await fetch(`${serverUrl}/api/config`);
+        if (response.ok) {
+          const config = await response.json();
+          setPlayersPerMatch(config.playersPerMatch);
+        }
+      } catch (error) {
+        console.error('Failed to fetch server config:', error);
+      }
+    };
+    fetchConfig();
+  }, []);
 
   const handlePlay = () => {
     if (!isConnected) {
@@ -20,12 +41,12 @@ export default function Home() {
   };
 
   return (
-    <main className="min-h-screen bg-gradient-to-b from-gray-900 via-purple-900 to-gray-900">
-      {/* Header with RainbowKit Connect Button */}
-      <header className="flex justify-between items-center p-6">
-        <div className="flex items-center gap-2">
-          <span className="text-2xl">⚔️</span>
-          <h1 className="text-2xl font-bold text-white">Ronin Rumble</h1>
+    <main className="min-h-screen bg-background">
+      {/* Header */}
+      <header className="flex justify-between items-center p-6 border-b border-warm-gray-700">
+        <div className="flex items-center gap-3">
+          <Swords className="w-6 h-6 text-sage-500" strokeWidth={2} />
+          <h1 className="text-2xl font-semibold text-foreground">Ronin Rumble</h1>
         </div>
         <ConnectButton />
       </header>
@@ -35,118 +56,119 @@ export default function Home() {
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="text-center"
+          className="text-center max-w-4xl mx-auto"
         >
-          <h2 className="text-6xl font-bold text-white mb-4">
-            Web3 Card
-            <span className="bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
-              {" "}Autobattler
-            </span>
+          <h2 className="text-6xl font-semibold text-foreground mb-4">
+            Web3 Card Autobattler
           </h2>
 
-          <p className="text-xl text-gray-300 mb-12">
-            10-minute matches • 6-player lobbies • Position-based combat
+          <p className="text-xl text-warm-gray-400 mb-12">
+            10-minute matches • {playersPerMatch}-player lobbies • Position-based combat
           </p>
 
           {/* Stake Selection */}
-          <div className="max-w-2xl mx-auto mb-8">
-            <h3 className="text-lg text-gray-400 mb-4">Choose Your Stakes</h3>
+          <div className="max-w-3xl mx-auto mb-12">
+            <h3 className="text-base text-warm-gray-400 mb-6 font-medium">Choose Your Stakes</h3>
             <div className="grid grid-cols-4 gap-4">
               {[
-                { value: 0, label: 'Free', color: 'bg-gray-600', icon: '🎮', prize: 'Glory' },
-                { value: 0.001, label: '0.001 RON', color: 'bg-green-600', icon: '💰', prize: '0.0043' },
-                { value: 0.005, label: '0.005 RON', color: 'bg-blue-600', icon: '💎', prize: '0.0216' },
-                { value: 0.01, label: '0.01 RON', color: 'bg-purple-600', icon: '👑', prize: '0.0432' },
-              ].map((stake) => (
-                <button
-                  key={stake.value}
-                  onClick={() => setSelectedStake(stake.value)}
-                  className={`
-                    p-4 rounded-lg font-bold transition-all
-                    ${selectedStake === stake.value
-                      ? `${stake.color} scale-105 ring-2 ring-white`
-                      : 'bg-gray-700 hover:bg-gray-600'
-                    }
-                  `}
-                >
-                  <div className="text-2xl mb-1">{stake.icon}</div>
-                  <div className="text-sm">{stake.label}</div>
-                  <div className="text-xs mt-1 text-gray-300">
-                    {stake.value > 0 ? `Win: ${stake.prize} RON` : stake.prize}
-                  </div>
-                </button>
-              ))}
+                { value: 0, label: 'Free', icon: Sparkles, prize: 'Glory' },
+                { value: 0.001, label: '0.001 RON', icon: Coins, prize: '0.0043' },
+                { value: 0.005, label: '0.005 RON', icon: Coins, prize: '0.0216' },
+                { value: 0.01, label: '0.01 RON', icon: Crown, prize: '0.0432' },
+              ].map((stake) => {
+                const Icon = stake.icon;
+                const isSelected = selectedStake === stake.value;
+                return (
+                  <motion.button
+                    key={stake.value}
+                    onClick={() => setSelectedStake(stake.value)}
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    className={`
+                      p-5 rounded-lg transition-all duration-200
+                      ${isSelected
+                        ? 'bg-surface border-2 border-sage-500'
+                        : 'bg-surface border-2 border-warm-gray-700 hover:border-sage-600'
+                      }
+                    `}
+                  >
+                    <Icon className={`w-6 h-6 mx-auto mb-2 ${isSelected ? 'text-sage-500' : 'text-warm-gray-400'}`} strokeWidth={2} />
+                    <div className="text-sm font-medium text-foreground">{stake.label}</div>
+                    <div className="text-xs mt-1 text-warm-gray-400">
+                      {stake.value > 0 ? `Win: ${stake.prize} RON` : stake.prize}
+                    </div>
+                  </motion.button>
+                );
+              })}
             </div>
           </div>
 
           {/* Play Button */}
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
+          <Button
             onClick={handlePlay}
             disabled={!isConnected}
-            className={`
-              px-12 py-4 rounded-lg font-bold text-xl transition-all
-              ${isConnected
-                ? 'bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white'
-                : 'bg-gray-600 text-gray-400 cursor-not-allowed'
-              }
-            `}
+            variant="primary"
+            size="lg"
+            className="px-12"
           >
             {isConnected ? 'Enter Lobby' : 'Connect Wallet to Play'}
-          </motion.button>
+          </Button>
 
           {!isConnected && (
-            <p className="text-sm text-gray-500 mt-4">
+            <p className="text-sm text-warm-gray-500 mt-4">
               Click "Connect Wallet" above to get started
             </p>
           )}
         </motion.div>
 
         {/* Game Info Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mt-20">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mt-20 max-w-5xl mx-auto">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 }}
-            className="bg-gray-800/50 backdrop-blur rounded-lg p-6 text-center border border-gray-700 hover:border-purple-500 transition-colors"
           >
-            <div className="text-3xl mb-2">⚡</div>
-            <div className="text-2xl font-bold text-purple-400">10-15</div>
-            <div className="text-gray-400">Minutes per Game</div>
+            <Card variant="default" className="p-6 text-center hover:border-sage-600 transition-colors">
+              <Clock className="w-8 h-8 mx-auto mb-3 text-sage-500" strokeWidth={2} />
+              <div className="text-2xl font-semibold text-foreground mb-1">10-15</div>
+              <div className="text-sm text-warm-gray-400">Minutes per Game</div>
+            </Card>
           </motion.div>
 
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2 }}
-            className="bg-gray-800/50 backdrop-blur rounded-lg p-6 text-center border border-gray-700 hover:border-blue-500 transition-colors"
           >
-            <div className="text-3xl mb-2">🎴</div>
-            <div className="text-2xl font-bold text-blue-400">30</div>
-            <div className="text-gray-400">Unique Units</div>
+            <Card variant="default" className="p-6 text-center hover:border-sage-600 transition-colors">
+              <Users className="w-8 h-8 mx-auto mb-3 text-sage-500" strokeWidth={2} />
+              <div className="text-2xl font-semibold text-foreground mb-1">30</div>
+              <div className="text-sm text-warm-gray-400">Unique Units</div>
+            </Card>
           </motion.div>
 
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.3 }}
-            className="bg-gray-800/50 backdrop-blur rounded-lg p-6 text-center border border-gray-700 hover:border-green-500 transition-colors"
           >
-            <div className="text-3xl mb-2">🎯</div>
-            <div className="text-2xl font-bold text-green-400">8</div>
-            <div className="text-gray-400">Board Positions</div>
+            <Card variant="default" className="p-6 text-center hover:border-sage-600 transition-colors">
+              <Grid3x3 className="w-8 h-8 mx-auto mb-3 text-sage-500" strokeWidth={2} />
+              <div className="text-2xl font-semibold text-foreground mb-1">8</div>
+              <div className="text-sm text-warm-gray-400">Board Positions</div>
+            </Card>
           </motion.div>
 
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.4 }}
-            className="bg-gray-800/50 backdrop-blur rounded-lg p-6 text-center border border-gray-700 hover:border-yellow-500 transition-colors"
           >
-            <div className="text-3xl mb-2">🏆</div>
-            <div className="text-2xl font-bold text-yellow-400">Top 3</div>
-            <div className="text-gray-400">Win Rewards</div>
+            <Card variant="default" className="p-6 text-center hover:border-sage-600 transition-colors">
+              <Trophy className="w-8 h-8 mx-auto mb-3 text-sage-500" strokeWidth={2} />
+              <div className="text-2xl font-semibold text-foreground mb-1">Top 3</div>
+              <div className="text-sm text-warm-gray-400">Win Rewards</div>
+            </Card>
           </motion.div>
         </div>
       </div>
